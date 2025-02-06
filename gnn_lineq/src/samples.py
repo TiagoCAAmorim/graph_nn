@@ -1,19 +1,12 @@
-"""Module that holds classes for a Linear Equations Dataloader."""
+"""Module that holds classes to build a Linear Equations Dataset."""
 import numpy as np
-from numpy import random
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 
 import torch
-import torch.nn.functional as F
-
 import torch_geometric as tg
-from torch_geometric.nn import GCNConv
-from torch_geometric.loader import DataLoader
-from torch_geometric.utils.convert import to_networkx
 
-
-class DynamicGraphDataset(tg.data.Dataset):
+class DynamicGraphDataset(tg.data.Dataset): # pylint: disable=abstract-method
     """
     Custom dataset for samples generated dinamically.
 
@@ -31,7 +24,7 @@ class DynamicGraphDataset(tg.data.Dataset):
     - kwargs: dict. Keyword arguments to pass to the sample function.
     """
     def __init__(self, dataset_len, sample_function, transform=None, pre_transform=None, **kwargs):
-        super(DynamicGraphDataset, self).__init__('.', transform, pre_transform)
+        super().__init__('.', transform, pre_transform)
         self.n = dataset_len
         self.sample_function = sample_function
         self.kwargs = kwargs
@@ -42,15 +35,6 @@ class DynamicGraphDataset(tg.data.Dataset):
     def get(self, idx):
         return self.sample_function(**self.kwargs)
 
-
-# options = {
-#     'n': 100,
-#     'number_generator': number_generator,
-#     'rank': 5,
-#     'off_diagonal_abs_mean': 1.0,
-#     'symmetric': False,
-#     'uniform_range': (0.1,10.)
-# }
 
 class LinEqSample():
     """
@@ -70,14 +54,22 @@ class LinEqSample():
 
     Attributes:
     -----------
-    - rank: int. Rank of the square matrix. Default is 5.
-    - diagonals: int. Number of diagonals with non-null values.
+    - rank (int): Rank of the square matrix. Default is 5.
+    - diagonals (int): Number of diagonals with non-null values.
         Default is 5.
-    - off_diagonal_abs_mean: float. Mean of the absolute values of the
+    - off_diagonal_abs_mean (float): Mean of the absolute values of the
         off-diagonal elements. Default is 0.5.
-    - symmetric: bool. If True, the matrix is symmetric. Default is False.
-    - uniform_range: tuple. Range of the uniform distribution for the
-        random numbers. Default is (0.1,10.).
+    - symmetric (bool): If True, the matrix is symmetric. Default is False.
+    - width_range (tuple): Range of possbible values for the width of the
+        uniform distribution used to create the matrix of coefficients.
+        Default is (0.1,10.).
+
+    Methods:
+    --------
+    - number_generator: Generates random numbers with a probabilistic range.
+    - get: Generates a linear system sample.
+    - calculate_residual: Calculates the residual of the linear system.
+    - sparse_to_graph: Generates a graph from the linear system.
     """
 
     def __init__(self, **kwargs):
@@ -118,7 +110,6 @@ class LinEqSample():
         return params
 
 
-
     @staticmethod
     def number_generator(size=1, width=(1.,1.)):
         """
@@ -130,8 +121,9 @@ class LinEqSample():
         `width` parameter.
 
         Parameters:
-        size (int): Number of random numbers to generate.
-        width (tuple): Limits of the width around the mean for the random.
+        -----------
+        - size (int): Number of random numbers to generate.
+        - width (tuple): Limits of the width around the mean for the random.
             Draws from a uniform distribution.
         """
         rng = np.random.default_rng()
@@ -158,27 +150,126 @@ class LinEqSample():
         return diags(data, self._params['offsets'], format='csr')
 
 
-    def get(self):
-        """Get a linear system sample."""
+    def get(self, max_error=0, max_iter=1000, throw_error=True):
+        """
+        Get a linear system sample.
 
-        matrix_a = self._get_matrix()
+        Arguments:
+        ----------
+        - max_error (float): Maximum error allowed for the linear system.
+            The root mean square error is used to calculate the error.
+            If equal to zero, the erros is not checked. Default is 0.
+        - max_iter (int): Maximum number of iterations to generate a linear
+            system. Default is 1000.
+        - throw_error (bool): If True, raises an error if the maximum number
+            of iterations is reached. If False the 'best' sample is returned.
+            Default is True.
 
-        x_true = LinEqSample.number_generator(
-            size=self.rank,
-            width=(1.,1.))
-        b = matrix_a.dot(x_true)
+        Returns:
+        --------
+        - matrix_a (scipy.sparse.csr_matrix): Matrix of coefficients.
+        - x_true (np.ndarray): True solution.
+        - b (np.ndarray): Right-hand side of the linear system.
+        """
 
-        return (matrix_a, x_true, b)
+        best_error = np.inf
+        best_sample = None
+
+        for _ in range(max_iter):
+            matrix_a = self._get_matrix()
+            x_true = LinEqSample.number_generator(
+                size=self.rank,
+                width=(1.,1.))
+            b = matrix_a.dot(x_true)
+
+            if max_error == 0:
+                return (matrix_a, x_true, b)
+            error = LinEqSample.calculate_residual(matrix_a, x_true, b, aggr='rms')
+            if error < max_error:
+                return (matrix_a, x_true, b)
+            if error < best_error:
+                best_error = error
+                best_sample = (matrix_a, x_true, b)
+
+        if throw_error:
+            raise ValueError("Could not generate a linear system with the desired error.")
+        return best_sample
+
+
+    def get_graph(self, max_error=0, max_iter=1000, throw_error=True):
+        """
+        Get a graph from a linear system sample.
+
+        Arguments:
+        ----------
+        - max_error (float): Maximum error allowed for the linear system.
+            The root mean square error is used to calculate the error.
+            If equal to zero, the erros is not checked. Default is 0.
+        - max_iter (int): Maximum number of iterations to generate a linear
+            system. Default is 1000.
+        - throw_error (bool): If True, raises an error if the maximum number
+            of iterations is reached. If False the 'best' sample is returned.
+            Default is True.
+
+        Returns:
+        --------
+        - matrix_a (scipy.sparse.csr_matrix): Matrix of coefficients.
+        - x_true (np.ndarray): True solution.
+        - b (np.ndarray): Right-hand side of the linear system.
+        """
+        matrix, x_true, b = self.get(
+            max_error=max_error,
+            max_iter=max_iter,
+            throw_error=throw_error
+        )
+        return LinEqSample.sparse_to_graph(matrix, x_true, b)
+
 
     @staticmethod
-    def _get_residual(matrix, x_true, b):
+    def calculate_residual(matrix, x_true, b, aggr=None):
+        """
+        Calculate the residual of the linear system.
+
+        Arguments:
+        ----------
+        - matrix (scipy.sparse.csr_matrix): Matrix of coefficients.
+        - x_true (np.ndarray): True solution.
+        - b (np.ndarray): Right-hand side of the linear system.
+        - aggr (str): Aggregation method for the residual. Options are 'max',
+            'mean', and 'rms'. If None, returns the vector. Default is None.
+
+        Returns:
+        --------
+        - np.ndarray or float: Residual of the linear system.
+        """
         x_solve = spsolve(matrix, b)
-        residual = x_solve - x_true
-        return residual
+        residual = np.abs(x_solve - x_true)
+        if aggr is None:
+            return residual
+        if aggr == 'max':
+            return residual.max()
+        if aggr == 'mean':
+            return residual.mean()
+        if aggr == 'rms':
+            return np.sqrt(np.mean(np.square(residual)))
+        raise ValueError("Invalid aggregation method.")
+
 
     @staticmethod
-    def _sparse_to_graph(matrix, x_true, b):
-        """Generate graph from sparse matrix system of equations."""
+    def sparse_to_graph(matrix, x_true, b):
+        """
+        Generate graph from sparse matrix system of equations
+
+        Arguments:
+        ----------
+        - matrix (scipy.sparse.csr_matrix): Matrix of coefficients.
+        - x_true (np.ndarray): True solution.
+        - b (np.ndarray): Right-hand side of the linear system.
+
+        Returns:
+        --------
+        - tg.data.Data: Graph data object.
+        """
         return tg.data.Data(
             x=torch.tensor(b).unsqueeze(1).to(torch.float32),
             edge_index=torch.tensor(np.array(matrix.nonzero())).to(torch.int64),
@@ -186,13 +277,19 @@ class LinEqSample():
             y=torch.tensor(x_true).unsqueeze(1).to(torch.float32)
             )
 
+
 def test_sample():
     """Test sample generation."""
     samples = LinEqSample(
-        rank=5, diagonals=6, off_diagonal_abs_mean=0.5, symmetric=False, width_range=(0.1,10.))
+        rank=5,
+        diagonals=4,
+        off_diagonal_abs_mean=0.5,
+        symmetric=False,
+        width_range=(0.1,10.)
+    )
 
-    matrix, x_true, b = samples.get()
-    residual = LinEqSample._get_residual(matrix, x_true, b) # pylint: disable=protected-access
+    matrix, x_true, b = samples.get(max_error=1E-6, max_iter=1000, throw_error=True)
+
     print('Matrix:')
     print(matrix.toarray())
     print('x_true:')
@@ -200,8 +297,39 @@ def test_sample():
     print('b:')
     print(b)
     print('Residual:')
+    residual = LinEqSample.calculate_residual(matrix, x_true, b)
     print(residual)
+    residual = LinEqSample.calculate_residual(matrix, x_true, b, aggr='max')
+    print('max: ',residual)
+    residual = LinEqSample.calculate_residual(matrix, x_true, b, aggr='mean')
+    print('mean: ',residual)
+    residual = LinEqSample.calculate_residual(matrix, x_true, b, aggr='rms')
+    print('rms: ',residual)
+
+
+def test_dataset():
+    """Test creating a dataset."""
+    samples = LinEqSample(
+        rank=50,
+        diagonals=4,
+        off_diagonal_abs_mean=0.5,
+        symmetric=False,
+        width_range=(0.1,10.)
+    )
+
+    dataset = DynamicGraphDataset(
+        dataset_len=100,
+        sample_function=samples.get_graph,
+        max_error=1E-6,
+        max_iter=1000,
+        throw_error=False
+    )
+
+    print('Dataset length:', len(dataset))
+    print('Sample 0:')
+    print(dataset[0])
+
 
 if __name__ == '__main__':
-    print(__doc__)
-    test_sample()
+    # test_sample()
+    test_dataset()
