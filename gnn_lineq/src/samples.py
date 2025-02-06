@@ -13,6 +13,7 @@ from scipy.sparse.linalg import spsolve
 import torch
 import torch_geometric as tg
 
+# MARK: Dataset
 class DynamicGraphDataset(tg.data.Dataset): # pylint: disable=abstract-method
     """
     Custom dataset for samples generated dinamically.
@@ -43,6 +44,7 @@ class DynamicGraphDataset(tg.data.Dataset): # pylint: disable=abstract-method
         return self.sample_function(**self.kwargs)
 
 
+# MARK: Samples
 class LinEqSample():
     """
     Class that generates Linear Equations samples.
@@ -157,6 +159,7 @@ class LinEqSample():
         return diags(data, self._params['offsets'], format='csr')
 
 
+    # MARK: Public methods
     def get(self, max_error=0, max_iter=1000, throw_error=True):
         """
         Get a linear system sample.
@@ -285,6 +288,7 @@ class LinEqSample():
             )
 
 
+# MARK: Tests
 def test_sample():
     """Test sample generation."""
     samples = LinEqSample(
@@ -338,5 +342,5 @@ def test_dataset():
 
 
 if __name__ == '__main__':
-    # test_sample()
+    test_sample()
     test_dataset()
