@@ -1,4 +1,11 @@
-"""Module that holds classes to build a Linear Equations Dataset."""
+"""
+Module that holds classes to build a Linear Equations Dataset.
+
+Classes:
+--------
+- DynamicGraphDataset: Custom dataset for samples generated dinamically.
+- LinEqSample: Class that generates Linear Equations samples.
+"""
 import numpy as np
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
