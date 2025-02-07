@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 from networks import GraphConvNetwork
 from samples import LinEqSample, DynamicGraphDataset
-from utils import plot_samples_error, plot_dataset_error, train_model, plot_losses
+from utils import count_parameters, plot_samples_error, plot_dataset_error, train_model, plot_losses
 
 
 def build_dataset():
@@ -44,15 +44,22 @@ def main():
     dataset = build_dataset()
     loader = DataLoader(dataset, batch_size=32, shuffle=False)
 
-    print('Training the model...')
     model = GraphConvNetwork(
             input_dim=dataset.num_node_features,
             output_dim=dataset.num_features,
             hidden_dim=16,
-            layers=5)
+            layers=5,
+            p_drop=0.2,
+            activation='LeakyReLU',
+            negative_slope=0.2,
+    )
+    print(f'Number of parameters: {count_parameters(model):,}')
+    print(model)
+
+    print('\nTraining the model...')
     model = model.to(device)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=0.01, weight_decay=5e-4)
-    loss = train_model(model, loader, epochs=500, print_epochs=10, optimizer=optimizer)
+    loss = train_model(model, loader, epochs=20, print_epochs=10, optimizer=optimizer)
 
     print('Plotting the results...')
     folder = Path(__file__).resolve().parent / '_plots'
