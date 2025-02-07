@@ -172,3 +172,4 @@ cython_debug/
 *Zone.Identifier
 no_sync/
 *.html
+.vscode
