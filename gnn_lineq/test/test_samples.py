@@ -1,11 +1,12 @@
 # pylint: disable=import-error, wrong-import-position
 """Test samples module."""
 
-import unittest
-from pathlib import Path
 import sys
-
+from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
+
+import unittest
+
 from samples import LinEqSample, DynamicGraphDataset
 
 

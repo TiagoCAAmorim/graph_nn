@@ -1,13 +1,13 @@
 # pylint: disable=import-error, wrong-import-position
 """Test networks module."""
 
-import unittest
-from pathlib import Path
 import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 
+import unittest
 from torch_geometric.loader import DataLoader
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 from samples import LinEqSample, DynamicGraphDataset
 from networks import GraphConvNetwork
 
