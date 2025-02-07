@@ -171,3 +171,4 @@ cython_debug/
 .pypirc
 *Zone.Identifier
 no_sync/
+*.html

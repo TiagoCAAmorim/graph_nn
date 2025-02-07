@@ -1,30 +1,22 @@
-"""Helper functions to generate plots."""
+"""
+Helper functions to generate plots.
 
-# from pathlib import Path
+To open html from WSL:
+- Install wslu: sudo apt-get install wslu
+- Add variable to ~/.bashrc: export BROWSER=wslview
+"""
 
-import numpy as np
-# from numpy import random
-# from scipy.sparse import diags
-# from scipy.sparse.linalg import spsolve
-
-# import torch
-# import torch.nn.functional as F
-
-# import torch_geometric as tg
-# from torch_geometric.nn import GCNConv
-# from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import to_networkx
 
 import matplotlib.pyplot as plt
 import networkx as nx
 
-from bokeh.models import Plot, Range1d, MultiLine, Circle, HoverTool, TapTool, BoxSelectTool, EdgesAndLinkedNodes
-from bokeh.palettes import Viridis256, Category20_20, viridis
+from bokeh.models import MultiLine, HoverTool
+from bokeh.palettes import viridis
 from bokeh.plotting import figure, from_networkx, show, output_file, save
-# from bokeh.io import output_notebook, show
 
-# if __name__ == '__main__':
-import samples # pylint: disable=import-error
+if __name__ == '__main__':
+    import samples # pylint: disable=import-error
 
 
 def plot_histograms(arrays, bins=30, figsize=(6, 1), max_height=20, title=None, file_path=None):
@@ -114,7 +106,7 @@ def plot_graph(graph, ax=None, fig_size=(4,4), title=None, file_path=None):
     return ax
 
 
-def plot_graph_bokeh(graph, width=400, height=400, layout=None, file_path=None):
+def plot_graph_bokeh(graph, width=400, height=400, layout=None, title=None, file_path=None):
     """
     Interactive plot of the given graph with Bokeh.
 
@@ -131,19 +123,22 @@ def plot_graph_bokeh(graph, width=400, height=400, layout=None, file_path=None):
     hover = HoverTool()
     hover.tooltips = [("index", "$index")]
     for k in graph.node_attrs():
-        hover.tooltips.append((k, f'@{k}'))
+        hover.tooltips.append((k, f'@{k}'+'{0.4f}'))
     p.add_tools(hover)
 
-    graph_x = to_networkx(graph, node_attrs=['x'], edge_attrs=['edge_attr'])
+    graph_x = to_networkx(graph, node_attrs=['x','y'], edge_attrs=['edge_attr'])
     if layout is None:
         layout = nx.spring_layout
     graph_viz = from_networkx(graph_x, layout, scale=1.0, center=(0,0))
-    p.renderers.append(graph_viz)
+    p.renderers.append(graph_viz) # pylint: disable=no-member
 
     graph_viz.node_renderer.data_source.data['index'] = list(range(graph.num_nodes))
-    graph_viz.node_renderer.data_source.data['colors'] =  viridis(graph.num_nodes)
+    graph_viz.node_renderer.data_source.data['colors'] =  viridis(graph.num_nodes) # pylint: disable=no-member
     graph_viz.edge_renderer.glyph = MultiLine(line_color="gray", line_alpha=0.8, line_width=3)
     graph_viz.node_renderer.glyph.update(size=15, fill_color="colors")
+
+    if title is not None:
+        p.title.text = title
 
     if file_path is not None:
         output_file(file_path)
@@ -157,7 +152,9 @@ def test_multi_histogram_plot():
     """Test plot with multiple histograms."""
     data_ = []
     for _ in range(6):
-        data_.append(samples.LinEqSample.number_generator(1000, width=(0.1,10.)))
+        data_.append(
+            samples.LinEqSample.number_generator(1000, width=(0.1,10.)) # pylint: disable=possibly-used-before-assignment
+        )
     _,_ = plot_histograms(data_, bins=30, title='Samples Histograms')
     plt.show()
 
@@ -207,12 +204,16 @@ def test_bokeh_graph_plot():
     graph = dataset.get_graph()
     print('Edge index:')
     print(graph.edge_index)
-    plot_graph_bokeh(graph)
+    print('X:')
+    print(graph.x)
+    print('Y:')
+    print(graph.y)
+    plot_graph_bokeh(graph, title='Graph Visualization')
     plt.show()
 
 
 if __name__ == '__main__':
-    # test_multi_histogram_plot()
-    # test_simple_graph_plot()
-    # test_simple_graph_plot_panel()
+    test_multi_histogram_plot()
+    test_simple_graph_plot()
+    test_simple_graph_plot_panel()
     test_bokeh_graph_plot()
