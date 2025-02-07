@@ -4,6 +4,12 @@ Helper functions to generate plots.
 To open html from WSL:
 - Install wslu: sudo apt-get install wslu
 - Add variable to ~/.bashrc: export BROWSER=wslview
+
+Functions:
+----------
+- plot_histograms: Plot histograms for a list of numpy arrays in a single column.
+- plot_graph: Static plot of the given graph with Matplotlib.
+- plot_graph_bokeh: Interactive plot of the given graph with Bokeh.
 """
 
 from torch_geometric.utils.convert import to_networkx
@@ -14,9 +20,6 @@ import networkx as nx
 from bokeh.models import MultiLine, HoverTool
 from bokeh.palettes import viridis
 from bokeh.plotting import figure, from_networkx, show, output_file, save
-
-if __name__ == '__main__':
-    import samples # pylint: disable=import-error
 
 
 def plot_histograms(arrays, bins=30, figsize=(6, 1), max_height=20, title=None, file_path=None):
@@ -147,73 +150,5 @@ def plot_graph_bokeh(graph, width=400, height=400, layout=None, title=None, file
         show(p)
 
 
-
-def test_multi_histogram_plot():
-    """Test plot with multiple histograms."""
-    data_ = []
-    for _ in range(6):
-        data_.append(
-            samples.LinEqSample.number_generator(1000, width=(0.1,10.)) # pylint: disable=possibly-used-before-assignment
-        )
-    _,_ = plot_histograms(data_, bins=30, title='Samples Histograms')
-    plt.show()
-
-
-def test_simple_graph_plot():
-    """Test static graph plot."""
-    dataset = samples.LinEqSample(
-        rank=5,
-        diagonals=2,
-        off_diagonal_abs_mean=0.5,
-        symmetric=False,
-        width_range=(0.1,10.)
-    )
-    graph = dataset.get_graph()
-    print('Edge index:')
-    print(graph.edge_index)
-    plot_graph(graph, fig_size=(4,4))
-    plt.show()
-
-
-def test_simple_graph_plot_panel():
-    """Test building panel of graph plots."""
-    _, ax = plt.subplots(2, 4, figsize=(12, 6))
-    ax = ax.flatten()
-    for i in range(8):
-        dataset = samples.LinEqSample(
-            rank=5,
-            diagonals=i+2,
-            off_diagonal_abs_mean=0.5,
-            symmetric=False,
-            width_range=(0.1,10.)
-        )
-        graph = dataset.get_graph()
-        plot_graph(graph, ax=ax[i], title=f'Diagonals: {i+2}')
-    plt.show()
-
-
-def test_bokeh_graph_plot():
-    """Test bokeh graph plot."""
-    dataset = samples.LinEqSample(
-        rank=5,
-        diagonals=4,
-        off_diagonal_abs_mean=0.5,
-        symmetric=False,
-        width_range=(0.1,10.)
-    )
-    graph = dataset.get_graph()
-    print('Edge index:')
-    print(graph.edge_index)
-    print('X:')
-    print(graph.x)
-    print('Y:')
-    print(graph.y)
-    plot_graph_bokeh(graph, title='Graph Visualization')
-    plt.show()
-
-
 if __name__ == '__main__':
-    test_multi_histogram_plot()
-    test_simple_graph_plot()
-    test_simple_graph_plot_panel()
-    test_bokeh_graph_plot()
+    print(__doc__)
