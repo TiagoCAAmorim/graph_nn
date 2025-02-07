@@ -57,9 +57,9 @@ def plot_histograms(arrays, bins=30, figsize=(6, 1), max_height=20, title=None, 
         axes[0].set_title(title)
 
     axes[-1].set_xlabel('Value')
-    plt.tight_layout()
 
     if file_path is not None:
+        plt.tight_layout()
         plt.savefig(file_path)
 
     return axes
@@ -104,6 +104,7 @@ def plot_graph(graph, ax=None, fig_size=(4,4), title=None, file_path=None):
         ax.set_title(title)
 
     if file_path is not None:
+        plt.tight_layout()
         plt.savefig(file_path)
 
     return ax

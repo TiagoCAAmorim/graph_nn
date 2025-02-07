@@ -1,16 +1,17 @@
+# pylint: disable=import-error, wrong-import-position
 """Train network."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 
 import torch
 from torch_geometric.loader import DataLoader
 import matplotlib.pyplot as plt
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 from networks import GraphConvNetwork
 from samples import LinEqSample, DynamicGraphDataset
-from utils import plot_sample_error, plot_dataset_error, train_model, plot_losses
+from utils import plot_samples_error, plot_dataset_error, train_model, plot_losses
 
 
 def build_dataset():
@@ -51,21 +52,25 @@ def main():
             layers=5)
     model = model.to(device)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=0.01, weight_decay=5e-4)
-    loss = train_model(model, loader, epochs=200, print_epoch_step=10, optimizer=optimizer)
+    loss = train_model(model, loader, epochs=500, print_epochs=10, optimizer=optimizer)
 
     print('Plotting the results...')
-    plot_losses(loss)
-    plt.savefig('Loss.png')
-    plt.close()
+    folder = Path(__file__).resolve().parent / '_plots'
+    folder.mkdir(exist_ok=True, parents=True)
 
-    plot_sample_error(model, dataset[0])
-    plt.savefig('Sample.png')
-    plt.close()
+    _,axes = plt.subplots(1, 3, figsize=(16,8))
+    axes = axes.flatten()
 
-    plot_dataset_error(model, dataset)
-    plt.savefig('ErrorHistogram.png')
-    plt.close()
+    plot_losses(loss, axes[0], title='RMSE Loss')
 
+    plot_dataset_error(model, dataset, axes[1], title='Error Histogram')
+
+    samples = [dataset[i] for i in range(5)]
+    plot_samples_error(model, samples, axes[2], title='Samples')
+
+    plt.suptitle('GraphConvNetwork Results')
+    plt.savefig(folder / 'Sample.png')
+    plt.close()
 
 
 

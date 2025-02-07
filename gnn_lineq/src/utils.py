@@ -11,47 +11,69 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def plot_losses(losses, x_label='Epoch', y_label='MSE Loss', title=None):
+def plot_losses(losses, ax=None, fig_size=(4,4), title=None, file_path=None):
     """Plot the loss curve."""
-    plt.plot(losses['x'], losses['y'])
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
-    plt.yscale('log')
-    plt.grid(which='both', linewidth=0.5)
+    if ax is None:
+        _, ax = plt.subplots(figsize=fig_size)
+
+    ax.plot(losses['x'], losses['y'])
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('MSE Loss')
+    ax.set_yscale('log')
+    ax.grid(which='both', linewidth=0.5)
     if title is not None:
-        plt.title(title)
+        ax.set_title(title)
+
+    if file_path is not None:
+        plt.tight_layout()
+        plt.savefig(file_path)
+
+    return ax
 
 
-def plot_sample_error(model, sample, limits=(-1.5,1.5), sorted_values=True, title=None):
-    """Plot the result of the model on a sample."""
+def plot_samples_error(model, samples, ax=None, fig_size=(4,4), title=None, file_path=None):
+    """Plot the result of the model for various samples."""
+    if ax is None:
+        _, ax = plt.subplots(figsize=fig_size)
+
     model.eval()
-
     device = next(model.parameters()).device
+    results = []
     with torch.no_grad():
-        result = model(sample.to(device))
+        for sample in samples:
+            results.append(model(sample.to(device)))
 
-    real = sample.y.cpu().flatten().numpy()
-    estimate = result.cpu().flatten().numpy()
-
-    if sorted_values:
+    labels = ['Real', 'Estimate']
+    for sample, result in zip(samples, results):
+        real = sample.y.cpu().flatten().numpy()
+        estimate = result.cpu().flatten().numpy()
         sorted_indices = np.argsort(real)
-    else:
-        sorted_indices = np.arange(len(real))
 
-    plt.plot(real[sorted_indices], label='Real')
-    plt.plot(estimate[sorted_indices], label='Estimate')
-    plt.ylabel('Value')
-    plt.legend()
-    plt.grid(which='both', linewidth=0.5)
-    plt.ylim(limits[0], limits[1])
+        base_line, = ax.plot(real[sorted_indices], label=labels[0])
+        last_color = base_line.get_color()
+        ax.plot(estimate[sorted_indices], label=labels[1], linestyle='--', color=last_color)
+        labels = [None, None]
+
+    ax.set_ylabel('Value')
+    ax.legend()
+    ax.grid(which='both', linewidth=0.5)
     if title is None:
         residual = np.sqrt(np.mean(np.square(real - estimate)))
         title = f'RMS error: {residual:.4g}'
-    plt.title(title)
+    ax.set_title(title)
+
+    if file_path is not None:
+        plt.tight_layout()
+        plt.savefig(file_path)
+
+    return ax
 
 
-def plot_dataset_error(model, dataset, title=None):
+def plot_dataset_error(model, dataset, ax=None, fig_size=(4,4), title=None, file_path=None):
     """Plot the histogram of the errors on a dataset."""
+    if ax is None:
+        _, ax = plt.subplots(figsize=fig_size)
+
     device = next(model.parameters()).device
     model.eval()
 
@@ -67,17 +89,23 @@ def plot_dataset_error(model, dataset, title=None):
     estimate = np.concatenate(estimate)
 
     errors = real - estimate
-    plt.hist(errors, bins=50)
-    plt.xlabel('Relative Error')
-    plt.ylabel('Count')
-    plt.grid(which='both', linewidth=0.5)
+    ax.hist(errors, bins=50)
+    ax.set_xlabel('Relative Error')
+    ax.set_ylabel('Count')
+    ax.grid(which='both', linewidth=0.5)
     if title is None:
         residual = np.sqrt(np.mean(np.square(errors)))
         title = f'RMS error: {residual:.4g}'
-    plt.title(title)
+    ax.set_title(title)
+
+    if file_path is not None:
+        plt.tight_layout()
+        plt.savefig(file_path)
+
+    return ax
 
 
-def train_model(model, loader, epochs=200, print_epoch_step=10, optimizer=None):
+def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None):
     """Train a model on a DataLoader."""
     print(f'Number of parameters: {count_parameters(model):,}')
     device = next(model.parameters()).device
@@ -85,6 +113,8 @@ def train_model(model, loader, epochs=200, print_epoch_step=10, optimizer=None):
     model = model.to(device)
     if optimizer is None:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
+
+    print_epoch_step = max(1, epochs // print_epochs)
 
     losses = {'x':[], 'y':[]}
     model.train()
