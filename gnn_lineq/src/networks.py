@@ -1,111 +1,210 @@
+# pylint: disable=line-too-long, too-many-arguments, unused-import
 """Module with the definition of the GNN model."""
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
+from torch.nn import ModuleList
+# import torch.nn.functional as F
 
 from torch_geometric.nn import GCN, summary, Sequential
 from torch_geometric.nn.conv import GraphConv, NNConv, TransformerConv, PDNConv
-from torch.nn import ReLU, ModuleList
 
 
 class ActivationFunction(nn.Module):
     """Activation function."""
-    def __init__(self, activation='ReLU', **kwargs):
+    def __init__(self, activation=None, **kwargs):
         super().__init__()
 
-        if activation == 'ReLU':
+        if activation is None:
+            self.activation = nn.Identity()
+        elif not isinstance(activation, str):
+            raise ValueError('Activation function must be a string or None.')
+        elif activation.lower() == 'relu':
             self.activation = nn.ReLU()
-        elif activation == 'Sigmoid':
+        elif activation.lower() == 'sigmoid':
             self.activation = nn.Sigmoid()
-        elif activation == 'Tanh':
+        elif activation.lower() == 'tanh':
             self.activation = nn.Tanh()
-        elif activation == 'LeakyReLU':
+        elif activation.lower() == 'leakyrelu':
             self.activation = nn.LeakyReLU(**kwargs) # negative_slope=0.01
-        elif activation == 'ELU':
+        elif activation.lower() == 'elu':
             self.activation = nn.ELU(**kwargs) # alpha=1.0
         else:
             msg = f'Unknown activation function: {activation}.'
-            msg +=' Use ReLU, Sigmoid, Tanh, LeakyReLU or ELU.'
+            msg +=" Use `None`, 'ReLU', 'Sigmoid', 'Tanh', 'LeakyReLU' or 'ELU'."
             raise ValueError(msg)
 
     def forward(self, x):
         """Forward pass of the activation function."""
         return self.activation(x)
 
-class SimpleMLP(torch.nn.Module):
+
+class MLP(torch.nn.Module):
     """
     Simple Multi-Layer Perceptron model.
 
     Parameters:
     -----------
-    - input_dim (int): Dimension of the input.
-    - output_dim (int): Dimension of the output.
-    - hidden_dim (int): Dimension of the hidden layer. If None, model has a single
-        layer followed by an activation function. Else, a linear layer is added after
-        the activation function. Default is None.
-    - activation (str): Activation function to use. Default is 'ReLU'.
+    - dims (list of int): Dimension of the input, followed by the dimensions
+        of the outputs of each layer.
+    - p_drop (float): Dropout probability. Default is 0.0.
+    - add_layer_norm (bool): If True, a layer normalization is added after
+        the last layer. Default is False.
+    - final_activation (bool): If True, an activation is added after the final
+        layer. Default is False.
+    - activation (str): Activation function to use. Default is `None`.
     - **kwargs: Additional arguments for the activation function.
     """
-    def __init__(self, input_dim, output_dim, hidden_dim=None, activation='ReLU', **kwargs):
+    def __init__(self, dims, p_drop=0.0, add_layer_norm=False, final_activation=False, activation=None, **kwargs):
         super().__init__()
+        if len(dims) < 2:
+            raise ValueError('At least two dimensions are required.')
 
+        self.layers = ModuleList()
         activation = ActivationFunction(activation, **kwargs)
 
-        if hidden_dim is None:
-            self.layer = Sequential('x', [
-                (torch.nn.Linear(input_dim, output_dim),'x -> x'),
-                (activation,'x -> x'),
-            ])
-        else:
-            self.layer = Sequential('x', [
-                (torch.nn.Linear(input_dim, hidden_dim),'x -> x'),
-                (activation,'x -> x'),
-                (torch.nn.Linear(hidden_dim, output_dim),'x -> x')
-            ])
+        for i in range(len(dims) - 1):
+            self.layers.append(torch.nn.Linear(dims[i], dims[i+1]))
+            if p_drop > 0.0:
+                self.layers.append(nn.Dropout(p_drop))
+            if i < len(dims) - 2 or final_activation:
+                self.layers.append(activation)
+        if add_layer_norm:
+            self.layers.append(nn.LayerNorm(dims[-1]))
 
     def forward(self, x):
         """Forward pass of the model."""
-        return self.layer(x)
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 
-class GraphConvNetwork(torch.nn.Module):
-    """Simple Graph Convolutional Network model."""
-    def __init__(self, input_dim, output_dim, hidden_dim=16, layers=2, p_drop=0.0, activation='ReLU', **kwargs):
+class EdgeMLP(torch.nn.Module):
+    """
+    Edge Attribute MLP.
+
+    Parameters:
+    -----------
+    - dims (list of int): Dimensions of the input (nodes, edges).
+    - output_dims (list of int): Dimensions of the outputs of each layer.
+    - p_drop (float): Dropout probability. Default is 0.0.
+    - add_layer_norm (bool): If True, a layer normalization is added after
+        the last layer. Default is False.
+    - activation (str): Activation function to use. Default is `None`.
+    - **kwargs: Additional arguments for the activation function.
+    """
+    def __init__(self, dims, output_dims, p_drop=0.0, add_layer_norm=False, activation=None, **kwargs):
+        super().__init__()
+
+        self.mlp = MLP(
+            dims=[2*dims[0]+dims[1]] + output_dims,
+            p_drop=p_drop,
+            add_layer_norm=add_layer_norm,
+            activation=activation,
+            **kwargs)
+
+    def forward(self, x, edge_index, edge_attr):
+        """Forward pass of the layer."""
+        e = torch.cat([x[edge_index[0]], x[edge_index[1]], edge_attr], dim=-1)
+        e = self.mlp(e)
+        return e
+
+
+class NNConvLayer(torch.nn.Module):
+    """
+    Single NNConv layer + Edge Attribute MLP.
+
+    Parameters:
+    -----------
+    - dims (tuple): Dimensions of the input and output (nodes, edges). Assumes
+        output dimensions are equal to the input dimensions.
+    - edge_mlp_layers (int): Number of layers for the edge MLP. Default is 2.
+    - p_drop (float): Dropout probability. Default is 0.0.
+    - add_layer_norm (bool): If True, a layer normalization is added after
+        the last layer. Default is False.
+    - nn_activation (str): Activation function to use for the nn. Default is `None`.
+    - **kwargs: Additional arguments for the activation function
+    """
+    def __init__(self, dims, edge_mlp_layers=2, p_drop=0.0, add_layer_norm=False, nn_activation=None, **kwargs):
+        super().__init__()
+
+        self.edge_attr_mlp = MLP(
+            dims=[2*dims[0]+dims[1]] + edge_mlp_layers*[dims[1]],
+            p_drop=p_drop,
+            add_layer_norm=add_layer_norm,
+            activation=nn_activation,
+            **kwargs)
+
+        nn_ = MLP(
+            dims=[dims[1]] + [dims[0]**2],
+            p_drop=p_drop,
+            add_layer_norm=add_layer_norm,
+            activation=nn_activation,
+            **kwargs)
+
+        self.conv = NNConv(
+            in_channels=dims[0],
+            out_channels=dims[0],
+            nn=nn_,
+            aggr='add')
+
+        self.drop = nn.Dropout(p_drop)
+
+    def forward(self, x, edge_index, edge_attr):
+        """Forward pass of the layer."""
+        e = torch.cat([x[edge_index[0]], x[edge_index[1]], edge_attr], dim=-1)
+        e = self.edge_attr_mlp(e)
+
+        x = self.conv(x, edge_index, e)
+        x = self.drop(x)
+        return x, e
+
+
+class NNConvNetwork(torch.nn.Module):
+    """NNConv Network model."""
+    def __init__(self, input_dims, output_dims, hidden_dims, layers=2, p_drop=0.0, activation='ReLU', **kwargs):
         super().__init__()
 
         self.convs = ModuleList()
-        self.convs.append(GraphConv(input_dim, hidden_dim, aggr='add'))
-        for _ in range(layers - 2):
-            self.convs.append(GraphConv(hidden_dim, hidden_dim, aggr='add'))
-        self.convs.append(GraphConv(hidden_dim, output_dim, aggr='add'))
+        self.convs.append(
+            NNConvLayer(
+                input_dims=input_dims,
+                output_dims=hidden_dims,
+                hidden_dims=hidden_dims,
+                p_drop=p_drop,
+                nn_activation=activation,
+                **kwargs))
 
-        self.drop = nn.Dropout(p_drop)
+        for _ in range(layers - 1):
+            self.convs.append(
+                NNConvLayer(
+                    input_dims=hidden_dims,
+                    output_dims=hidden_dims,
+                    hidden_dims=hidden_dims,
+                    p_drop=p_drop,
+                    nn_activation=activation,
+                    **kwargs))
+
+        self.final_conv = MLP(
+            dims=[hidden_dims[0], hidden_dims[0], output_dims[0]],
+            activation=activation,
+            **kwargs
+        )
+
         self.activation = ActivationFunction(activation, **kwargs)
 
     def forward(self, data):
         """Forward pass of the model."""
-        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+        x, edge_index, e = data.x, data.edge_index, data.edge_attr
 
-        for conv in self.convs[:-1]:
-            x = conv(x, edge_index, edge_attr)
+        for conv in self.convs:
+            x, e = conv(x, edge_index, e)
             x = self.activation(x)
-            x = self.drop(x)
-        x = self.convs[-1](x, edge_index, edge_attr)
+            e = self.activation(e)
+
+        x = self.final_conv(x)
 
         return x
-
-
-# class NNConvLayer(torch.nn.Module):
-#     """Single NNConv layer."""
-#     def __init__(self, input_dims, output_dims, hidden_dims, p_drop=0.0):
-#         super().__init__()
-
-#         edge_mlp = SimpleMLP(input_dims[1], hidden_dims[1], hidden_dims[0] * output_dims[0])
-#         self.edge_mlps.append(GenericMLP(dataset.num_edge_features, hidden_edges, hidden_nodes * dataset.num_features))
-
-#         self.conv = NNConv(hidden_nodes, hidden_nodes, nn=edge_mlp, aggr='add'))
-#         self.drop = nn.Dropout(p_drop)
 
 
 # class NNConvNetwork(torch.nn.Module):
