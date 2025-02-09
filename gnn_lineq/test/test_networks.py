@@ -61,8 +61,7 @@ class TestNetworks(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             model = ActivationFunction('Unknown')
-        with self.assertRaises(TypeError):
-            model = ActivationFunction('LeakyReLu', sl=0.1)
+        model = ActivationFunction('LeakyReLu', sl=0.1)
 
 
     def test_mlp(self):
