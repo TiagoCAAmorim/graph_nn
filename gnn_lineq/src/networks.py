@@ -10,6 +10,7 @@ from torch_geometric.nn import GCN, summary, Sequential
 from torch_geometric.nn.conv import NNConv, TransformerConv, PDNConv
 
 
+# MARK: Activation functions
 class ActivationFunction(nn.Module):
     """Activation function."""
     def __init__(self, activation=None, **kwargs):
@@ -26,9 +27,11 @@ class ActivationFunction(nn.Module):
         elif activation.lower() == 'tanh':
             self.activation = nn.Tanh()
         elif activation.lower() == 'leakyrelu':
-            self.activation = nn.LeakyReLU(**kwargs) # negative_slope=0.01
+            negative_slope = kwargs.get('negative_slope', 0.01)
+            self.activation = nn.LeakyReLU(negative_slope)
         elif activation.lower() == 'elu':
-            self.activation = nn.ELU(**kwargs) # alpha=1.0
+            alpha = kwargs.get('alpha', 1.0)
+            self.activation = nn.ELU(alpha)
         else:
             msg = f'Unknown activation function: {activation}.'
             msg +=" Use `None`, 'ReLU', 'Sigmoid', 'Tanh', 'LeakyReLU' or 'ELU'."
@@ -39,6 +42,7 @@ class ActivationFunction(nn.Module):
         return self.activation(x)
 
 
+# MARK: MLP
 class MLP(torch.nn.Module):
     """
     Simple Multi-Layer Perceptron model.
@@ -79,6 +83,7 @@ class MLP(torch.nn.Module):
         return x
 
 
+# MARK: EdgeMLP
 class EdgeMLP(torch.nn.Module):
     """
     Edge Attribute MLP.
@@ -103,13 +108,16 @@ class EdgeMLP(torch.nn.Module):
             activation=activation,
             **kwargs)
 
-    def forward(self, x, edge_index, edge_attr):
-        """Forward pass of the layer."""
+    def forward(self, x, edge_index=None, edge_attr=None):
+        """Forward pass of the model."""
+        if edge_index is None:
+            x, edge_index, edge_attr = x.x, x.edge_index, x.edge_attr
         e = torch.cat([x[edge_index[0]], x[edge_index[1]], edge_attr], dim=-1)
         e = self.mlp(e)
         return e
 
 
+# MARK: NNConvLayer
 class NNConvLayer(torch.nn.Module):
     """
     Single NNConv layer + Edge Attribute MLP.
@@ -152,15 +160,17 @@ class NNConvLayer(torch.nn.Module):
 
         self.drop = nn.Dropout(p_drop)
 
-    def forward(self, x, edge_index, edge_attr):
-        """Forward pass of the layer."""
+    def forward(self, x, edge_index=None, edge_attr=None):
+        """Forward pass of the model."""
+        if edge_index is None:
+            x, edge_index, edge_attr = x.x, x.edge_index, x.edge_attr
         edge_attr = self.edge_attr_mlp(x, edge_index, edge_attr)
         x = self.conv(x, edge_index, edge_attr)
         x = self.drop(x)
         return x, edge_attr
 
 
-
+# MARK: TransformerConvLayer
 class TransformerConvLayer(torch.nn.Module):
     """
     Single TransformerConv layer + Edge Attribute MLP.
@@ -200,13 +210,16 @@ class TransformerConvLayer(torch.nn.Module):
             dropout=p_drop,
             edge_dim=dims[1])
 
-    def forward(self, x, edge_index, edge_attr):
-        """Forward pass of the layer."""
+    def forward(self, x, edge_index=None, edge_attr=None):
+        """Forward pass of the model."""
+        if edge_index is None:
+            x, edge_index, edge_attr = x.x, x.edge_index, x.edge_attr
         edge_attr = self.edge_attr_mlp(x, edge_index, edge_attr)
         x = self.conv(x, edge_index, edge_attr)
         return x, edge_attr
 
 
+# MARK: EncDecNetwork
 class EncDecNetwork(torch.nn.Module):
     """
     Encoder Decoder Network model.
@@ -273,15 +286,17 @@ class EncDecNetwork(torch.nn.Module):
         self.add_skip = add_skip
 
 
-    def forward(self, x, edge_index, edge_attr):
+    def forward(self, x, edge_index=None, edge_attr=None):
         """Forward pass of the model."""
+        if edge_index is None:
+            x, edge_index, edge_attr = x.x, x.edge_index, x.edge_attr
         x = self.enconder_nodes(x)
         e = self.enconder_edges(edge_attr)
 
         for layer in self.process_block:
             x_, e = layer(x, edge_index, e)
             if self.add_skip:
-                x += x_
+                x = x + x_
             else:
                 x = x_
 
