@@ -11,7 +11,7 @@ import torch
 from torch_geometric.loader import DataLoader
 
 from samples import LinEqSample, DynamicGraphDataset
-from networks import ActivationFunction, MLP, EdgeMLP
+from networks import ActivationFunction, MLP, EdgeMLP, NNConvLayer, TransformerConvLayer
 from utils import count_parameters
 
 
@@ -65,7 +65,7 @@ class TestNetworks(unittest.TestCase):
 
 
     def test_mlp(self):
-        """Test mlp network block."""
+        """Test MLP block."""
         sample = torch.randn(10, 5)
 
         dims=[5, 10, 6]
@@ -90,7 +90,7 @@ class TestNetworks(unittest.TestCase):
 
 
     def test_edge_mlp(self):
-        """Test edge mlp network block."""
+        """Test EdgeMLP block."""
         sample = TestNetworks.get_random_sample(
             n_nodes=5,
             n_edges=10,
@@ -110,6 +110,56 @@ class TestNetworks(unittest.TestCase):
         n_weigths = sum((dims[i]+1)*dims[i+1] for i in range(len(dims)-1))
         n_weigths += dims[-1]*2
         self.assertEqual(count_parameters(model), n_weigths)
+
+
+    def test_nn_conv_layer(self):
+        """Test NNConvLayer block."""
+        sample = TestNetworks.get_random_sample(
+            n_nodes=5,
+            n_edges=10,
+            node_features=3,
+            edge_features=2
+        )
+        model = NNConvLayer(
+            dims=[sample[0].shape[1], sample[2].shape[1]],
+            edge_mlp_layers=2,
+            p_drop=0.0,
+            add_layer_norm=True,
+            activation='ReLU',
+        )
+        result = model(*sample)
+        self.assertEqual(result[0].shape, sample[0].shape)
+        self.assertEqual(result[1].shape, sample[2].shape)
+
+        print(f'{count_parameters(model):,} parameters')
+        print(model)
+        TestNetworks.print_model(model)
+
+
+    def test_transformer_conv_layer(self):
+        """Test TransformerConvLayer block."""
+        sample = TestNetworks.get_random_sample(
+            n_nodes=5,
+            n_edges=10,
+            node_features=3,
+            edge_features=2
+        )
+        model = TransformerConvLayer(
+            dims=[sample[0].shape[1], sample[2].shape[1]],
+            heads=3,
+            beta=True,
+            edge_mlp_layers=2,
+            p_drop=0.0,
+            add_layer_norm=True,
+            activation='ReLU',
+        )
+        result = model(*sample)
+        self.assertEqual(result[0].shape, sample[0].shape)
+        self.assertEqual(result[1].shape, sample[2].shape)
+
+        print(f'{count_parameters(model):,} parameters')
+        print(model)
+        TestNetworks.print_model(model)
 
 
 
@@ -143,11 +193,31 @@ class TestNetworks(unittest.TestCase):
         return (nodes, edge_index, edge_attr)
 
 
+    @staticmethod
+    def print_model(model, level=0, max_level=1, master='0'):
+        """Print model."""
+        if hasattr(model, 'children') and level < max_level:
+            for i, layer in enumerate(model.children()):
+                TestNetworks.print_model(
+                    layer,
+                    level=level+1,
+                    max_level=max_level,
+                    master=master+'.'+str(i)
+                )
+        else:
+            print()
+            print(f'{master} - {count_parameters(model):,} parameters')
+            print(model)
+
+
 if __name__ == '__main__':
     suite = unittest.TestSuite()
-    suite.addTest(TestNetworks('test_activation'))
-    suite.addTest(TestNetworks('test_mlp'))
-    # suite.addTest(TestNetworks('test_graph_conv_network'))
+    # suite.addTest(TestNetworks('test_activation'))
+    # suite.addTest(TestNetworks('test_mlp'))
+    # suite.addTest(TestNetworks('test_edge_mlp'))
+    # suite.addTest(TestNetworks('test_nn_conv_layer'))
+    suite.addTest(TestNetworks('test_transformer_conv_layer'))
+
 
     runner = unittest.TextTestRunner()
     runner.run(suite)

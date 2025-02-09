@@ -7,7 +7,7 @@ from torch.nn import ModuleList
 # import torch.nn.functional as F
 
 from torch_geometric.nn import GCN, summary, Sequential
-from torch_geometric.nn.conv import GraphConv, NNConv, TransformerConv, PDNConv
+from torch_geometric.nn.conv import NNConv, TransformerConv, PDNConv
 
 
 class ActivationFunction(nn.Module):
@@ -122,24 +122,26 @@ class NNConvLayer(torch.nn.Module):
     - p_drop (float): Dropout probability. Default is 0.0.
     - add_layer_norm (bool): If True, a layer normalization is added after
         the last layer. Default is False.
-    - nn_activation (str): Activation function to use for the nn. Default is `None`.
+    - nn_activation (str): Activation function to use for the NNConv nn argument
+        and EdgeMLP. Default is `None`.
     - **kwargs: Additional arguments for the activation function
     """
-    def __init__(self, dims, edge_mlp_layers=2, p_drop=0.0, add_layer_norm=False, nn_activation=None, **kwargs):
+    def __init__(self, dims, edge_mlp_layers=2, p_drop=0.0, add_layer_norm=False, activation=None, **kwargs):
         super().__init__()
 
-        self.edge_attr_mlp = MLP(
-            dims=[2*dims[0]+dims[1]] + edge_mlp_layers*[dims[1]],
+        self.edge_attr_mlp = EdgeMLP(
+            dims=dims,
+            output_dims=edge_mlp_layers*[dims[1]],
             p_drop=p_drop,
             add_layer_norm=add_layer_norm,
-            activation=nn_activation,
+            activation=activation,
             **kwargs)
 
         nn_ = MLP(
             dims=[dims[1]] + [dims[0]**2],
             p_drop=p_drop,
             add_layer_norm=add_layer_norm,
-            activation=nn_activation,
+            activation=activation,
             **kwargs)
 
         self.conv = NNConv(
@@ -152,59 +154,104 @@ class NNConvLayer(torch.nn.Module):
 
     def forward(self, x, edge_index, edge_attr):
         """Forward pass of the layer."""
-        e = torch.cat([x[edge_index[0]], x[edge_index[1]], edge_attr], dim=-1)
-        e = self.edge_attr_mlp(e)
-
-        x = self.conv(x, edge_index, e)
+        edge_attr = self.edge_attr_mlp(x, edge_index, edge_attr)
+        x = self.conv(x, edge_index, edge_attr)
         x = self.drop(x)
-        return x, e
+        return x, edge_attr
 
 
-class NNConvNetwork(torch.nn.Module):
-    """NNConv Network model."""
-    def __init__(self, input_dims, output_dims, hidden_dims, layers=2, p_drop=0.0, activation='ReLU', **kwargs):
+
+class TransformerConvLayer(torch.nn.Module):
+    """
+    Single TransformerConv layer + Edge Attribute MLP.
+
+    Parameters:
+    -----------
+    - dims (tuple): Dimensions of the input and output (nodes, edges). Assumes
+        output dimensions are equal to the input dimensions.
+    - heads (int): Number of multi-head-attentions. Default is 1.
+    - beta (bool): If set, will combine aggregation and skip information.
+        Default is False.
+    - edge_mlp_layers (int): Number of layers for the edge MLP. Default is 2.
+    - p_drop (float): Dropout probability. Default is 0.0.
+    - add_layer_norm (bool): If True, a layer normalization is added after
+        the last layer. Default is False.
+    - nn_activation (str): Activation function to use for the NNConv nn argument
+        and EdgeMLP. Default is `None`.
+    - **kwargs: Additional arguments for the activation function
+    """
+    def __init__(self, dims, heads=1, beta=False, edge_mlp_layers=2, p_drop=0.0, add_layer_norm=False, activation=None, **kwargs):
         super().__init__()
 
-        self.convs = ModuleList()
-        self.convs.append(
-            NNConvLayer(
-                input_dims=input_dims,
-                output_dims=hidden_dims,
-                hidden_dims=hidden_dims,
-                p_drop=p_drop,
-                nn_activation=activation,
-                **kwargs))
-
-        for _ in range(layers - 1):
-            self.convs.append(
-                NNConvLayer(
-                    input_dims=hidden_dims,
-                    output_dims=hidden_dims,
-                    hidden_dims=hidden_dims,
-                    p_drop=p_drop,
-                    nn_activation=activation,
-                    **kwargs))
-
-        self.final_conv = MLP(
-            dims=[hidden_dims[0], hidden_dims[0], output_dims[0]],
+        self.edge_attr_mlp = EdgeMLP(
+            dims=dims,
+            output_dims=edge_mlp_layers*[dims[1]],
+            p_drop=p_drop,
+            add_layer_norm=add_layer_norm,
             activation=activation,
-            **kwargs
-        )
+            **kwargs)
 
-        self.activation = ActivationFunction(activation, **kwargs)
+        self.conv = TransformerConv(
+            in_channels=dims[0],
+            out_channels=dims[0],
+            heads=heads,
+            concat=False,
+            beta=beta,
+            dropout=p_drop,
+            edge_dim=dims[1])
 
-    def forward(self, data):
-        """Forward pass of the model."""
-        x, edge_index, e = data.x, data.edge_index, data.edge_attr
+    def forward(self, x, edge_index, edge_attr):
+        """Forward pass of the layer."""
+        edge_attr = self.edge_attr_mlp(x, edge_index, edge_attr)
+        x = self.conv(x, edge_index, edge_attr)
+        return x, edge_attr
 
-        for conv in self.convs:
-            x, e = conv(x, edge_index, e)
-            x = self.activation(x)
-            e = self.activation(e)
 
-        x = self.final_conv(x)
+# class NNConvNetwork(torch.nn.Module):
+#     """NNConv Network model."""
+#     def __init__(self, input_dims, output_dims, hidden_dims, layers=2, p_drop=0.0, activation='ReLU', **kwargs):
+#         super().__init__()
 
-        return x
+#         self.convs = ModuleList()
+#         self.convs.append(
+#             NNConvLayer(
+#                 input_dims=input_dims,
+#                 output_dims=hidden_dims,
+#                 hidden_dims=hidden_dims,
+#                 p_drop=p_drop,
+#                 nn_activation=activation,
+#                 **kwargs))
+
+#         for _ in range(layers - 1):
+#             self.convs.append(
+#                 NNConvLayer(
+#                     input_dims=hidden_dims,
+#                     output_dims=hidden_dims,
+#                     hidden_dims=hidden_dims,
+#                     p_drop=p_drop,
+#                     nn_activation=activation,
+#                     **kwargs))
+
+#         self.final_conv = MLP(
+#             dims=[hidden_dims[0], hidden_dims[0], output_dims[0]],
+#             activation=activation,
+#             **kwargs
+#         )
+
+#         self.activation = ActivationFunction(activation, **kwargs)
+
+#     def forward(self, data):
+#         """Forward pass of the model."""
+#         x, edge_index, e = data.x, data.edge_index, data.edge_attr
+
+#         for conv in self.convs:
+#             x, e = conv(x, edge_index, e)
+#             x = self.activation(x)
+#             e = self.activation(e)
+
+#         x = self.final_conv(x)
+
+#         return x
 
 
 # class NNConvNetwork(torch.nn.Module):
