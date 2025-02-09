@@ -233,6 +233,7 @@ class EncDecNetwork(torch.nn.Module):
     - n_process_blocks (int): Number of process blocks. Default is 2.
     - add_skip (bool): If True, a skip connection is added to the process block.
         Default is False.
+    - pretrained_model (torch.nn.Module): Pretrained model to estimate response.
     - mlp_layers (int): Number of layers for the MLP. Default is 2.
     - p_drop (float): Dropout probability. Default is 0.0.
     - add_layer_norm (bool): If True, a layer normalization is added after
@@ -241,8 +242,14 @@ class EncDecNetwork(torch.nn.Module):
     - **kwargs: Additional arguments for the process block and activation function.
     """
     def __init__(self, input_dims, lat_dims, output_dim, process_block, n_process_blocks=2, add_skip=False,
+                 pretrained_model=None,
                  mlp_layers=2, p_drop=0.0, add_layer_norm=False, activation=None, **kwargs):
         super().__init__()
+
+        if pretrained_model is not None:
+            for param in pretrained_model.parameters():
+                param.requires_grad = False
+        self.pretrained_model = pretrained_model
 
         self.enconder_nodes = MLP(
             dims=[input_dims[0]] + mlp_layers*[lat_dims[0]],
@@ -290,6 +297,11 @@ class EncDecNetwork(torch.nn.Module):
         """Forward pass of the model."""
         if edge_index is None:
             x, edge_index, edge_attr = x.x, x.edge_index, x.edge_attr
+
+        if self.pretrained_model is not None:
+            with torch.no_grad():
+                x_estimate = self.pretrained_model(x)
+
         x = self.enconder_nodes(x)
         e = self.enconder_edges(edge_attr)
 
@@ -301,6 +313,9 @@ class EncDecNetwork(torch.nn.Module):
                 x = x_
 
         x = self.decoder_nodes(x)
+
+        if self.pretrained_model is not None:
+            x = x + x_estimate
 
         return x
 
