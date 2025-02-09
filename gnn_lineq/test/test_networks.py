@@ -11,7 +11,8 @@ import torch
 from torch_geometric.loader import DataLoader
 
 from samples import LinEqSample, DynamicGraphDataset
-from networks import ActivationFunction, MLP, EdgeMLP, NNConvLayer, TransformerConvLayer
+from networks import ActivationFunction, MLP, EdgeMLP
+from networks import NNConvLayer, TransformerConvLayer, EncDecNetwork
 from utils import count_parameters
 
 
@@ -162,21 +163,73 @@ class TestNetworks(unittest.TestCase):
         TestNetworks.print_model(model)
 
 
+    def test_nn_conv_network(self):
+        """Test Encoder-Decorder network with NNConvLayer."""
+        sample = TestNetworks.get_random_sample(
+            n_nodes=50,
+            n_edges=100,
+            node_features=3,
+            edge_features=5
+        )
 
-    # def test_graph_conv_network(self):
-    #     """Test GraphConvNetwork."""
+        latent_dims = [16, 8]
+        output_dim = 4
 
-    #     sample = self.samples.get_graph()
-    #     model = GraphConvNetwork(
-    #         input_dim=sample.num_node_features,
-    #         output_dim=sample.num_features,
-    #         hidden_dim=16,
-    #         layers=5)
-    #     result = model(sample)
+        model = EncDecNetwork(
+            input_dims=(sample[0].shape[1], sample[2].shape[1]),
+            lat_dims=latent_dims,
+            output_dim=output_dim,
+            process_block=NNConvLayer,
+            n_process_blocks=2,
+            add_skip=True,
+            mlp_layers=2,
+            p_drop=0.0,
+            add_layer_norm=False,
+            activation='relu',
+        )
 
-    #     self.assertEqual(result.shape, sample.y.shape)
-    #     self.assertFalse(sample.y.requires_grad)
-    #     self.assertTrue(result.requires_grad)
+        result = model(*sample)
+        self.assertEqual(result.shape, (sample[0].shape[0],output_dim))
+
+        print(f'{count_parameters(model):,} parameters')
+        print(model)
+        TestNetworks.print_model(model)
+
+
+    def test_transformer_conv_network(self):
+        """Test Encoder-Decorder network with TransformerConvLayer."""
+        sample = TestNetworks.get_random_sample(
+            n_nodes=50,
+            n_edges=100,
+            node_features=3,
+            edge_features=5
+        )
+
+        latent_dims = [16, 8]
+        output_dim = 4
+
+        model = EncDecNetwork(
+            input_dims=(sample[0].shape[1], sample[2].shape[1]),
+            lat_dims=latent_dims,
+            output_dim=output_dim,
+            process_block=TransformerConvLayer,
+            n_process_blocks=2,
+            add_skip=True,
+            mlp_layers=2,
+            p_drop=0.0,
+            add_layer_norm=False,
+            activation='relu',
+            heads=3,
+            beta=True,
+        )
+
+        result = model(*sample)
+        self.assertEqual(result.shape, (sample[0].shape[0],output_dim))
+
+        print(f'{count_parameters(model):,} parameters')
+        print(model)
+        TestNetworks.print_model(model)
+
 
     @staticmethod
     def get_random_sample(n_nodes=10, n_edges=20, node_features=5, edge_features=6):
@@ -212,12 +265,13 @@ class TestNetworks(unittest.TestCase):
 
 if __name__ == '__main__':
     suite = unittest.TestSuite()
-    # suite.addTest(TestNetworks('test_activation'))
-    # suite.addTest(TestNetworks('test_mlp'))
-    # suite.addTest(TestNetworks('test_edge_mlp'))
-    # suite.addTest(TestNetworks('test_nn_conv_layer'))
+    suite.addTest(TestNetworks('test_activation'))
+    suite.addTest(TestNetworks('test_mlp'))
+    suite.addTest(TestNetworks('test_edge_mlp'))
+    suite.addTest(TestNetworks('test_nn_conv_layer'))
     suite.addTest(TestNetworks('test_transformer_conv_layer'))
-
+    suite.addTest(TestNetworks('test_nn_conv_network'))
+    suite.addTest(TestNetworks('test_transformer_conv_network'))
 
     runner = unittest.TextTestRunner()
     runner.run(suite)

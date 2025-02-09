@@ -207,83 +207,87 @@ class TransformerConvLayer(torch.nn.Module):
         return x, edge_attr
 
 
-# class NNConvNetwork(torch.nn.Module):
-#     """NNConv Network model."""
-#     def __init__(self, input_dims, output_dims, hidden_dims, layers=2, p_drop=0.0, activation='ReLU', **kwargs):
-#         super().__init__()
+class EncDecNetwork(torch.nn.Module):
+    """
+    Encoder Decoder Network model.
 
-#         self.convs = ModuleList()
-#         self.convs.append(
-#             NNConvLayer(
-#                 input_dims=input_dims,
-#                 output_dims=hidden_dims,
-#                 hidden_dims=hidden_dims,
-#                 p_drop=p_drop,
-#                 nn_activation=activation,
-#                 **kwargs))
+    Parameters:
+    -----------
+    - input_dims (tuple): Dimensions of the input (nodes, edges).
+    - lat_dims (tuple): Dimensions of the latent space (nodes, edges).
+    - output_dim (int): Dimension of the output (nodes).
+    - process_block (torch.nn.Module): Process block to use.
+    - n_process_blocks (int): Number of process blocks. Default is 2.
+    - add_skip (bool): If True, a skip connection is added to the process block.
+        Default is False.
+    - mlp_layers (int): Number of layers for the MLP. Default is 2.
+    - p_drop (float): Dropout probability. Default is 0.0.
+    - add_layer_norm (bool): If True, a layer normalization is added after
+        the last layer. Default is False.
+    - activation (str): Activation function to use. Default is `None`.
+    - **kwargs: Additional arguments for the process block and activation function.
+    """
+    def __init__(self, input_dims, lat_dims, output_dim, process_block, n_process_blocks=2, add_skip=False,
+                 mlp_layers=2, p_drop=0.0, add_layer_norm=False, activation=None, **kwargs):
+        super().__init__()
 
-#         for _ in range(layers - 1):
-#             self.convs.append(
-#                 NNConvLayer(
-#                     input_dims=hidden_dims,
-#                     output_dims=hidden_dims,
-#                     hidden_dims=hidden_dims,
-#                     p_drop=p_drop,
-#                     nn_activation=activation,
-#                     **kwargs))
+        self.enconder_nodes = MLP(
+            dims=[input_dims[0]] + mlp_layers*[lat_dims[0]],
+            p_drop=p_drop,
+            add_layer_norm=add_layer_norm,
+            activation=activation,
+            final_activation=False,
+            **kwargs
+        )
 
-#         self.final_conv = MLP(
-#             dims=[hidden_dims[0], hidden_dims[0], output_dims[0]],
-#             activation=activation,
-#             **kwargs
-#         )
+        self.enconder_edges = MLP(
+            dims=[input_dims[1]] + mlp_layers*[lat_dims[1]],
+            p_drop=p_drop,
+            add_layer_norm=add_layer_norm,
+            activation=activation,
+            final_activation=False,
+            **kwargs
+        )
 
-#         self.activation = ActivationFunction(activation, **kwargs)
+        self.process_block = ModuleList()
+        for _ in range(n_process_blocks):
+            self.process_block.append(
+                process_block(
+                    dims=lat_dims,
+                    edge_mlp_layers=mlp_layers,
+                    p_drop=p_drop,
+                    add_layer_norm=add_layer_norm,
+                    activation=activation,
+                    **kwargs)
+            )
 
-#     def forward(self, data):
-#         """Forward pass of the model."""
-#         x, edge_index, e = data.x, data.edge_index, data.edge_attr
+        self.decoder_nodes = MLP(
+            dims=mlp_layers*[lat_dims[0]] + [output_dim],
+            p_drop=p_drop,
+            add_layer_norm=add_layer_norm,
+            activation=activation,
+            final_activation=False,
+            **kwargs
+        )
 
-#         for conv in self.convs:
-#             x, e = conv(x, edge_index, e)
-#             x = self.activation(x)
-#             e = self.activation(e)
-
-#         x = self.final_conv(x)
-
-#         return x
+        self.add_skip = add_skip
 
 
-# class NNConvNetwork(torch.nn.Module):
-#     """NNConv Network model."""
-#     def __init__(self, input_dim, output_dim, hidden_nodes=16, hidden_edges=16, layers=2, p_drop=0.0):
-#         super().__init__()
+    def forward(self, x, edge_index, edge_attr):
+        """Forward pass of the model."""
+        x = self.enconder_nodes(x)
+        e = self.enconder_edges(edge_attr)
 
-#         self.edge_mlps = ModuleList()
-#         self.edge_mlps.append(GenericMLP(dataset.num_edge_features, hidden_edges, dataset.num_node_features * hidden_nodes))
-#         for _ in range(layers - 2):
-#             self.edge_mlps.append(GenericMLP(dataset.num_edge_features, hidden_edges, hidden_nodes * hidden_nodes))
-#         self.edge_mlps.append(GenericMLP(dataset.num_edge_features, hidden_edges, hidden_nodes * dataset.num_features))
+        for layer in self.process_block:
+            x_, e = layer(x, edge_index, e)
+            if self.add_skip:
+                x += x_
+            else:
+                x = x_
 
-#         self.convs = ModuleList()
-#         self.convs.append(NNConv(dataset.num_node_features, hidden_nodes, nn=self.edge_mlps[0], aggr='add'))
-#         for i in range(layers - 2):
-#             self.convs.append(NNConv(hidden_nodes, hidden_nodes, nn=self.edge_mlps[i+1], aggr='add'))
-#         self.convs.append(NNConv(hidden_nodes, dataset.num_features, nn=self.edge_mlps[-1], aggr='add'))
+        x = self.decoder_nodes(x)
 
-#         self.use_dropout = use_dropout
-
-#     def forward(self, data):
-#         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
-
-#         for conv in self.convs[:-1]:
-#             x = conv(x, edge_index, edge_attr)
-#             x = F.relu(x)
-#             if self.use_dropout:
-#                 x = F.dropout(x, training=self.training)
-#         x = self.convs[-1](x, edge_index, edge_attr)
-
-#         return x
+        return x
 
 
 if __name__ == '__main__':
