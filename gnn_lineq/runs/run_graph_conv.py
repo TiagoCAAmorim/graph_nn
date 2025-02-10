@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 
+import time
 import random
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -95,6 +96,7 @@ def random_search(param_grid, n_iter=10, epochs=5, writer_folder=None):
     best_score = float('inf')
 
     for i in range(n_iter):
+        time0 = time.time()
         params = {k:random.choice(v) for k,v in param_grid.items()}
 
         writer = None
@@ -107,7 +109,8 @@ def random_search(param_grid, n_iter=10, epochs=5, writer_folder=None):
             save_model_and_params(model, params, writer_folder / 'save' / f'model_{i+1}.pth')
             plot_results(model, loss, writer_folder / 'plots' / f'iter_{i+1}', writer)
 
-        print(f'Iteration: {i+1}/{n_iter}, Score: {score:0.4g}')
+        delta_time = time.time() - time0
+        print(f'Iteration: {i+1}/{n_iter}, Score: {score:0.4g} ({delta_time:0.2f}s)')
         if score < best_score:
             best_score = score
             best_params = params
