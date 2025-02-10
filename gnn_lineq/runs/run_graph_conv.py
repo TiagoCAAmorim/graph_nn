@@ -59,10 +59,16 @@ def train_and_evaluate(params, epochs=5, writer=None):
     )
 
     model = model.to(device)
-    optimizer = torch.optim.RMSprop(
-        model.parameters(),
-        lr=params['lr'],
-        weight_decay=params['weight_decay'])
+    if params['optimizer'] == 'adam':
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=params['lr'],
+            weight_decay=params['weight_decay'])
+    else:
+        optimizer = torch.optim.RMSprop(
+            model.parameters(),
+            lr=params['lr'],
+            weight_decay=params['weight_decay'])
 
     loss, best_model = train_model(
         model,
@@ -131,6 +137,7 @@ def main():
     """Train the network."""
     param_grid = {
         'batch_size': [32, 64, 128, 256],
+        'optimizer': ['adam', 'rmsprop'],
 
         'lr': [0.0001, 0.001, 0.01, 0.1],
         'weight_decay': [1e-4, 1e-5, 1e-6],

@@ -141,7 +141,6 @@ def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None, writ
             if epoch % print_epoch_step == 0:
                 print(f'Epoch: {epoch:,}, Avg.Loss: {avg_loss:0.4g}')
         if (avg_loss < best_loss) or (best_state is None):
-            print(f'   New best at epoch {epoch:,}, Avg.Loss: {avg_loss:0.4g}')
             best_loss = avg_loss
             best_state = deepcopy(model.state_dict())
     model.load_state_dict(best_state)
