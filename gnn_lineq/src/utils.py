@@ -105,7 +105,7 @@ def plot_dataset_error(model, dataset, ax=None, fig_size=(4,4), title=None, file
     return ax
 
 
-def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None):
+def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None, writer=None):
     """Train a model on a DataLoader."""
     print(f'Number of parameters: {count_parameters(model):,}')
     device = next(model.parameters()).device
@@ -128,9 +128,26 @@ def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
+        avg_loss = total_loss / len(loader)
         losses['x'].append(epoch)
-        losses['y'].append(total_loss / len(loader))
+        losses['y'].append(avg_loss)
+        if writer:
+            writer.add_scalar('Loss/train', avg_loss, epoch)
         if print_epoch_step > 0:
             if epoch % print_epoch_step == 0:
                 print(f'Epoch: {epoch:,}, Loss: {loss.item():0.4g}')
     return losses
+
+def evaluate_model(model, loader):
+    """Evaluate a model on a DataLoader."""
+    device = next(model.parameters()).device
+
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for batch in loader:
+            data = batch.to(device)
+            output = model(data)
+            loss = F.mse_loss(output, data.y)
+            total_loss += loss.item()
+    return total_loss / len(loader)
