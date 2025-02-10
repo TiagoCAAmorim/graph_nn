@@ -64,10 +64,16 @@ def train_and_evaluate(params, epochs=5, writer=None):
         lr=params['lr'],
         weight_decay=params['weight_decay'])
 
-    loss = train_model(model, loader, epochs=epochs, print_epochs=10, optimizer=optimizer, writer=writer)
-    val_loss = evaluate_model(model, loader)
+    loss, best_model = train_model(
+        model,
+        loader,
+        epochs=epochs,
+        print_epochs=10,
+        optimizer=optimizer,
+        writer=writer)
+    val_loss = evaluate_model(best_model, loader)
 
-    return loss, val_loss, model
+    return loss, val_loss, best_model
 
 
 def random_search(param_grid, n_iter=10, epochs=5, writer_folder=None):
@@ -81,10 +87,11 @@ def random_search(param_grid, n_iter=10, epochs=5, writer_folder=None):
         writer = None
         if writer_folder is not None:
             writer = SummaryWriter(log_dir=writer_folder / f'iter_{i+1}')
-        _, score, _ = train_and_evaluate(params, epochs=epochs, writer=writer)
+        _, score, model = train_and_evaluate(params, epochs=epochs, writer=writer)
         if writer_folder is not None:
             add_hparams(writer, params, score)
             writer.close()
+            save_model_and_params(model, params, writer_folder / 'save' / f'model_{i+1}.pth')
 
         print(f'Iteration: {i+1}/{n_iter}, Score: {score:0.4g}')
         if score < best_score:
@@ -99,6 +106,25 @@ def add_hparams(writer, params, score):
     hparams = {k: str(v) for k, v in params.items()}
     hparams['score'] = score
     writer.add_hparams(hparams, {})
+
+
+def save_model_and_params(model, params, path):
+    """Save the model's state dictionary and hyperparameters."""
+    if not path.parent.exists():
+        path.parent.mkdir(parents=True)
+    state = {
+        'model_state_dict': model.state_dict(),
+        'params': params
+    }
+    torch.save(state, path)
+
+
+def load_model_and_params(path, model_class):
+    """Load the model's state dictionary and hyperparameters."""
+    state = torch.load(path)
+    model = model_class(**state['params'])
+    model.load_state_dict(state['model_state_dict'])
+    return model, state['params']
 
 
 def main():
@@ -120,12 +146,16 @@ def main():
         'heads': [1, 2, 4, 8],
         'beta': [True, False],
     }
-    epochs = 500
+    epochs = 200
     experiment_name = 'TransformerConv'
     folder = Path(__file__).resolve().parent / '_runs' / experiment_name
     folder.mkdir(exist_ok=True, parents=True)
 
-    best_params, best_score = random_search(param_grid, n_iter=200, epochs=epochs, writer_folder=folder)
+    best_params, best_score = random_search(
+        param_grid,
+        n_iter=500,
+        epochs=epochs,
+        writer_folder=folder)
     print(f'Best Hyperparameters: {best_params}')
     print(f'Best Score: {best_score:0.4g}')
 
@@ -133,6 +163,9 @@ def main():
     loss, best_score, model = train_and_evaluate(best_params, epochs=epochs, writer=writer)
     add_hparams(writer, best_params, best_score)
     writer.close()
+
+    # Save the model and hyperparameters
+    save_model_and_params(model, best_params, folder / 'save' / 'best_model.pth')
 
     print('Plotting the results...')
     dataset = build_dataset()

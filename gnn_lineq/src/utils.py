@@ -1,5 +1,6 @@
 """Assorted helper functions."""
 
+from copy import deepcopy
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -117,6 +118,9 @@ def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None, writ
     print_epoch_step = max(1, epochs // print_epochs)
 
     losses = {'x':[], 'y':[]}
+    best_loss = float('inf')
+    best_state = None
+
     model.train()
     for epoch in range(epochs):
         total_loss = 0
@@ -135,8 +139,14 @@ def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None, writ
             writer.add_scalar('Loss/train', avg_loss, epoch)
         if print_epoch_step > 0:
             if epoch % print_epoch_step == 0:
-                print(f'Epoch: {epoch:,}, Loss: {loss.item():0.4g}')
-    return losses
+                print(f'Epoch: {epoch:,}, Avg.Loss: {avg_loss:0.4g}')
+        if (avg_loss < best_loss) or (best_state is None):
+            print(f'   New best at epoch {epoch:,}, Avg.Loss: {avg_loss:0.4g}')
+            best_loss = avg_loss
+            best_state = deepcopy(model.state_dict())
+    model.load_state_dict(best_state)
+
+    return losses, model
 
 def evaluate_model(model, loader):
     """Evaluate a model on a DataLoader."""
