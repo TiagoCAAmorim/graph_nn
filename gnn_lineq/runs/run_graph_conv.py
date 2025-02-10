@@ -37,12 +37,10 @@ def build_dataset():
 
     return dataset
 
-def train_and_evaluate(params, epochs=5, writer=None):
-    """Train and evaluate the model."""
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    dataset = build_dataset()
-    loader = DataLoader(dataset, batch_size=params['batch_size'], shuffle=False)
 
+def build_model(params):
+    """Build the model from params dict."""
+    dataset = build_dataset()
     model = EncDecNetwork(
         input_dims=(dataset.num_node_features, dataset.num_edge_features),
         lat_dims=(params['node_lat_dim'], params['edge_lat_dim']),
@@ -57,6 +55,15 @@ def train_and_evaluate(params, epochs=5, writer=None):
         heads=params['heads'],
         beta=params['beta'],
     )
+    return model
+
+
+def train_and_evaluate(params, epochs=5, writer=None):
+    """Train and evaluate the model."""
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    dataset = build_dataset()
+    loader = DataLoader(dataset, batch_size=params['batch_size'], shuffle=False)
+    model = build_model(params)
 
     model = model.to(device)
     if params['optimizer'] == 'adam':
@@ -93,11 +100,12 @@ def random_search(param_grid, n_iter=10, epochs=5, writer_folder=None):
         writer = None
         if writer_folder is not None:
             writer = SummaryWriter(log_dir=writer_folder / f'iter_{i+1}')
-        _, score, model = train_and_evaluate(params, epochs=epochs, writer=writer)
+        loss, score, model = train_and_evaluate(params, epochs=epochs, writer=writer)
         if writer_folder is not None:
             add_hparams(writer, params, score)
             writer.close()
             save_model_and_params(model, params, writer_folder / 'save' / f'model_{i+1}.pth')
+            plot_results(model, loss, writer_folder / 'plots' / f'iter_{i+1}', writer)
 
         print(f'Iteration: {i+1}/{n_iter}, Score: {score:0.4g}')
         if score < best_score:
@@ -125,12 +133,36 @@ def save_model_and_params(model, params, path):
     torch.save(state, path)
 
 
-def load_model_and_params(path, model_class):
+def load_model_and_params(path):
     """Load the model's state dictionary and hyperparameters."""
     state = torch.load(path)
-    model = model_class(**state['params'])
+    model = build_model(state['params'])
     model.load_state_dict(state['model_state_dict'])
     return model, state['params']
+
+
+def plot_results(model, loss, folder, writer=None):
+    """Plot the results."""
+    dataset = build_dataset()
+    folder.mkdir(exist_ok=True, parents=True)
+
+    fig, axes = plt.subplots(1, 3, figsize=(16,8))
+    axes = axes.flatten()
+
+    plot_losses(loss, axes[0], title='RMSE Loss')
+
+    plot_dataset_error(model, dataset, axes[1], title='Error Histogram')
+
+    samples = [dataset[i] for i in range(5)]
+    plot_samples_error(model, samples, axes[2], title='Samples')
+
+    plt.suptitle('GraphConvNetwork Results')
+    plt.savefig(folder / 'Sample.png')
+    plt.close()
+
+    # Add the figure to TensorBoard
+    if writer is not None:
+        writer.add_figure('Results', fig)
 
 
 def main():
@@ -164,7 +196,7 @@ def main():
 
     best_params, best_score = random_search(
         param_grid,
-        n_iter=500,
+        n_iter=2000,
         epochs=epochs,
         writer_folder=folder)
     print(f'Best Hyperparameters: {best_params}')
@@ -172,30 +204,12 @@ def main():
 
     writer = SummaryWriter(log_dir=folder / 'best')
     loss, best_score, model = train_and_evaluate(best_params, epochs=epochs, writer=writer)
+
     add_hparams(writer, best_params, best_score)
-    writer.close()
-
-    # Save the model and hyperparameters
     save_model_and_params(model, best_params, folder / 'save' / 'best_model.pth')
-
-    print('Plotting the results...')
-    dataset = build_dataset()
     folder = Path(__file__).resolve().parent / '_plots'
-    folder.mkdir(exist_ok=True, parents=True)
-
-    _,axes = plt.subplots(1, 3, figsize=(16,8))
-    axes = axes.flatten()
-
-    plot_losses(loss, axes[0], title='RMSE Loss')
-
-    plot_dataset_error(model, dataset, axes[1], title='Error Histogram')
-
-    samples = [dataset[i] for i in range(5)]
-    plot_samples_error(model, samples, axes[2], title='Samples')
-
-    plt.suptitle('GraphConvNetwork Results')
-    plt.savefig(folder / 'Sample.png')
-    plt.close()
+    plot_results(model, loss, folder, writer)
+    writer.close()
 
 if __name__ == '__main__':
     main()
