@@ -136,23 +136,27 @@ def load_model_and_params(path, model_class):
 def main():
     """Train the network."""
     param_grid = {
-        'batch_size': [32, 64, 128, 256],
+        'batch_size': [32, 64, 128, 256, 512],
         'optimizer': ['adam', 'rmsprop'],
 
-        'lr': [0.0001, 0.001, 0.01, 0.1],
-        'weight_decay': [1e-4, 1e-5, 1e-6],
+        'lr': [1e-2, 1e-3, 1e-4, 1e-5, 1e-6],
+        'weight_decay': [1e-4, 1e-5, 1e-6, 1e-7],
 
         'node_lat_dim':[8, 16, 32, 64],
         'edge_lat_dim':[4, 8, 16, 32],
         'n_process_blocks': [1, 2, 4],
-        'add_skip': [True, False],
+        'add_skip': [False, True],
         'mlp_layers': [2, 4, 8],
         'p_drop': [0.0, 0.1, 0.2],
-        'add_layer_norm': [True, False],
+        'add_layer_norm': [False, True],
         'activation': ['relu', 'tanh', 'sigmoid', 'leakyrelu'],
         'heads': [1, 2, 4, 8],
-        'beta': [True, False],
+        'beta': [False, True],
     }
+
+    # Test very big model
+    # _, _, _ = train_and_evaluate({k:v[-1] for k,v in param_grid.items()}, epochs=10, writer=None)
+
     epochs = 200
     experiment_name = 'TransformerConv'
     folder = Path(__file__).resolve().parent / '_runs' / experiment_name
