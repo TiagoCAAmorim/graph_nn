@@ -106,7 +106,7 @@ def plot_dataset_error(model, dataset, ax=None, fig_size=(4,4), title=None, file
     return ax
 
 
-def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None, writer=None):
+def train_model(model, loader, epochs=200, print_epochs=20, patience=50, optimizer=None, writer=None):
     """Train a model on a DataLoader."""
     print(f'Number of parameters: {count_parameters(model):,}')
     device = next(model.parameters()).device
@@ -120,9 +120,13 @@ def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None, writ
     losses = {'x':[], 'y':[]}
     best_loss = float('inf')
     best_state = None
+    best_epoch = 0
 
     model.train()
     for epoch in range(epochs):
+        if epoch - best_epoch > patience:
+            print(f'Early stopping at epoch {epoch:,}')
+            break
         total_loss = 0
         for batch in loader:
             data = batch.to(device)
@@ -143,6 +147,7 @@ def train_model(model, loader, epochs=200, print_epochs=10, optimizer=None, writ
         if (avg_loss < best_loss) or (best_state is None):
             best_loss = avg_loss
             best_state = deepcopy(model.state_dict())
+            best_epoch = epoch
     model.load_state_dict(best_state)
 
     return losses, model
