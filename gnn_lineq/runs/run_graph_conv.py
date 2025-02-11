@@ -7,6 +7,8 @@ sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 
 import time
 import random
+import itertools
+
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
@@ -17,14 +19,15 @@ from samples import LinEqSample, DynamicGraphDataset
 from utils import plot_samples_error, plot_dataset_error, train_model, evaluate_model, plot_losses
 
 
-def build_dataset():
+def build_dataset(std=0.0):
     """Define dataset."""
     options = {
-        'rank': 50,
-        'diagonals': 10,
+        'rank': 20,
+        'diagonals': 7,
         'off_diagonal_abs_mean': 0.5,
         'symmetric': False,
-        'width_range': (0.1,10.)
+        'width_range': (0.1,10.),
+        'std': std
     }
     samples = LinEqSample(**options)
 
@@ -65,8 +68,12 @@ def build_model(params):
 def train_and_evaluate(params, epochs=5, writer=None):
     """Train and evaluate the model."""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    dataset = build_dataset()
+
+    dataset = build_dataset(std=params['std'])
+    dataset_eval = build_dataset(std=0.0)
     loader = DataLoader(dataset, batch_size=params['batch_size'], shuffle=False)
+    loader_eval = DataLoader(dataset_eval, batch_size=params['batch_size'], shuffle=False)
+
     model = build_model(params)
 
     model = model.to(device)
@@ -88,9 +95,29 @@ def train_and_evaluate(params, epochs=5, writer=None):
         print_epochs=10,
         optimizer=optimizer,
         writer=writer)
-    val_loss = evaluate_model(best_model, loader)
+    val_loss = evaluate_model(best_model, loader_eval)
 
     return loss, val_loss, best_model
+
+
+def generate_combinations(param_grid, shuffle=True):
+    """
+    Generate all possible combinations of the values in the lists within a dictionary.
+
+    Parameters:
+    -----------
+    - param_grid (dict): Dictionary of lists.
+    - shuffle (bool): Shuffle the combinations.
+
+    Returns:
+    --------
+    - list of dict: List of dictionaries with all possible combinations of the values.
+    """
+    keys, values = zip(*param_grid.items())
+    combinations = [dict(zip(keys, combination)) for combination in itertools.product(*values)]
+    if shuffle:
+        random.shuffle(combinations)
+    return combinations
 
 
 def random_search(param_grid, n_iter=10, epochs=5, writer_folder=None):
@@ -98,9 +125,11 @@ def random_search(param_grid, n_iter=10, epochs=5, writer_folder=None):
     best_params = None
     best_score = float('inf')
 
-    for i in range(n_iter):
+    params_list = generate_combinations(param_grid, shuffle=True)
+    n_iter = min(n_iter, len(params_list))
+
+    for i,params in enumerate(params_list[:n_iter]):
         time0 = time.time()
-        params = {k:random.choice(v) for k,v in param_grid.items()}
 
         writer = None
         if writer_folder is not None:
@@ -155,7 +184,7 @@ def plot_results(model, loss, folder, writer=None):
     fig, axes = plt.subplots(1, 3, figsize=(16,8))
     axes = axes.flatten()
 
-    plot_losses(loss, axes[0], title='RMSE Loss')
+    plot_losses(loss, axes[0], title='MSE Loss')
 
     plot_dataset_error(model, dataset, axes[1], title='Error Histogram')
 
@@ -174,22 +203,23 @@ def plot_results(model, loss, folder, writer=None):
 def hparam_optimization(folder, epochs=100):
     """Search for best hyperparams."""
     param_grid = {
-        'batch_size': [32, 64, 128, 256, 512],
-        'optimizer': ['adam', 'rmsprop'],
+        'batch_size': [64], #[32, 64, 128, 256, 512],
+        'optimizer': ['adam'], #['adam', 'rmsprop'],
 
-        'lr': [1e-2, 1e-3, 1e-4, 1e-5, 1e-6],
-        'weight_decay': [1e-4, 1e-5, 1e-6, 1e-7],
+        'lr': [1e-2, 1e-3], #[1e-2, 1e-3, 1e-4, 1e-5, 1e-6],
+        'weight_decay': [1e-7], #[1e-4, 1e-5, 1e-6, 1e-7],
 
-        'node_lat_dim':[8, 16, 32, 64],
-        'edge_lat_dim':[4, 8, 16, 32],
-        'n_process_blocks': [1, 2, 4],
-        'add_skip': [False, True],
-        'mlp_layers': [2, 4, 8],
-        'p_drop': [0.0, 0.1, 0.2],
-        'add_layer_norm': [False, True],
-        'activation': ['relu', 'tanh', 'sigmoid', 'leakyrelu'],
-        'heads': [1, 2, 4, 8],
-        'beta': [False, True],
+        'node_lat_dim':[16], #[8, 16, 32, 64],
+        'edge_lat_dim':[16, 32], #[4, 8, 16, 32],
+        'n_process_blocks': [2,3,4], #[1, 2, 4],
+        'add_skip': [True], #[False, True],
+        'mlp_layers': [4, 8], #[2, 4, 8],
+        'p_drop': [0.0, 0.05], #[0.0, 0.1, 0.2],
+        'add_layer_norm': [False], #[False, True],
+        'activation': ['leakyrelu'], #['relu', 'tanh', 'sigmoid', 'leakyrelu'],
+        'heads': [4], #[1, 2, 4, 8],
+        'beta': [True], #[False, True],
+        'std': [0.0, 1E-2, 2E-2, 3E-2]
     }
 
     # Test very big model
@@ -234,17 +264,22 @@ def run_best(folder):
         'add_layer_norm': False,
         'activation': 'leakyrelu',
         'heads': 2,
-        'beta': True}
+        'beta': True,
+        'std': 0.0
+    }
 
     run(best_params, 'best_5', folder, epochs=1000)
 
 def main():
     """Run the main function."""
-    experiment_name = 'TransformerConv'
+    experiment_name = 'TransformerConvNoise'
     folder = Path(__file__).resolve().parent / '_runs' / experiment_name
     folder.mkdir(exist_ok=True, parents=True)
 
-    # best_params = hparam_optimization(folder)
+    best_params = hparam_optimization(folder)
+    print(best_params)
+    # run(best_params, 'best_5', folder, epochs=1000)
+
     # run_best(folder)
 
     # model_name = 'best_2'
@@ -254,12 +289,12 @@ def main():
 
     # run(pre_params, 'best_2B', folder, epochs=1000)
 
-    model_name = 'best_2B'
-    pre_model, pre_params = load_model_and_params(folder / 'save' / f'{model_name}.pth')
-    pre_params['pretrained_model'] = pre_model
-    pre_params['n_process_blocks'] = 12
+    # model_name = 'best_2B'
+    # pre_model, pre_params = load_model_and_params(folder / 'save' / f'{model_name}.pth')
+    # pre_params['pretrained_model'] = pre_model
+    # pre_params['n_process_blocks'] = 12
 
-    run(pre_params, 'best_2B1', folder, epochs=1000)
+    # run(pre_params, 'best_2B1', folder, epochs=1000)
 
 
 if __name__ == '__main__':

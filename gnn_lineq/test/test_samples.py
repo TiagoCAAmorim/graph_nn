@@ -136,7 +136,6 @@ class TestSamples(unittest.TestCase):
         residual = LinEqSample.calculate_residual(matrix, x_true, b, aggr='rms')
         self.assertGreater(residual, 1E-6)
 
-
         noise_options = self.options.copy()
         noise_options['std'] = 1E-1
 
