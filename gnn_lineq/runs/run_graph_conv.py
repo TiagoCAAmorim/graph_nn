@@ -42,6 +42,8 @@ def build_dataset():
 def build_model(params):
     """Build the model from params dict."""
     dataset = build_dataset()
+    if 'pretrained_model' not in params:
+        params['pretrained_model'] = None
     model = EncDecNetwork(
         input_dims=(dataset.num_node_features, dataset.num_edge_features),
         lat_dims=(params['node_lat_dim'], params['edge_lat_dim']),
@@ -55,6 +57,7 @@ def build_model(params):
         activation=params['activation'],
         heads=params['heads'],
         beta=params['beta'],
+        pretrained_model=params['pretrained_model'],
     )
     return model
 
@@ -138,7 +141,7 @@ def save_model_and_params(model, params, path):
 
 def load_model_and_params(path):
     """Load the model's state dictionary and hyperparameters."""
-    state = torch.load(path)
+    state = torch.load(path, weights_only=False)
     model = build_model(state['params'])
     model.load_state_dict(state['model_state_dict'])
     return model, state['params']
@@ -168,8 +171,8 @@ def plot_results(model, loss, folder, writer=None):
         writer.add_figure('Results', fig)
 
 
-def main():
-    """Train the network."""
+def hparam_optimization(folder, epochs=100):
+    """Search for best hyperparams."""
     param_grid = {
         'batch_size': [32, 64, 128, 256, 512],
         'optimizer': ['adam', 'rmsprop'],
@@ -192,27 +195,72 @@ def main():
     # Test very big model
     # _, _, _ = train_and_evaluate({k:v[-1] for k,v in param_grid.items()}, epochs=10, writer=None)
 
-    epochs = 200
-    experiment_name = 'TransformerConv'
-    folder = Path(__file__).resolve().parent / '_runs' / experiment_name
-    folder.mkdir(exist_ok=True, parents=True)
-
     best_params, best_score = random_search(
         param_grid,
-        n_iter=2000,
+        n_iter=500,
         epochs=epochs,
         writer_folder=folder)
     print(f'Best Hyperparameters: {best_params}')
     print(f'Best Score: {best_score:0.4g}')
 
-    writer = SummaryWriter(log_dir=folder / 'best')
-    loss, best_score, model = train_and_evaluate(best_params, epochs=epochs, writer=writer)
+    return best_params
 
-    add_hparams(writer, best_params, best_score)
-    save_model_and_params(model, best_params, folder / 'save' / 'best_model.pth')
+def run(params, name, folder, epochs=100):
+    """Train the network."""
+
+    writer = SummaryWriter(log_dir=folder / name)
+    loss, best_score, model = train_and_evaluate(params, epochs=epochs, writer=writer)
+
+    add_hparams(writer, params, best_score)
+    save_model_and_params(model, params, folder / 'save' / f'{name}.pth')
     folder = Path(__file__).resolve().parent / '_plots'
     plot_results(model, loss, folder, writer)
     writer.close()
+
+def run_best(folder):
+    """Run the best model."""
+
+    best_params = {
+        'batch_size': 4,
+        'optimizer': 'adam',
+        'lr': 0.001,
+        'weight_decay': 1E-7,
+        'node_lat_dim': 16,
+        'edge_lat_dim': 32,
+        'n_process_blocks': 2,
+        'add_skip': True,
+        'mlp_layers': 6,
+        'p_drop': 0.0,
+        'add_layer_norm': False,
+        'activation': 'leakyrelu',
+        'heads': 2,
+        'beta': True}
+
+    run(best_params, 'best_5', folder, epochs=1000)
+
+def main():
+    """Run the main function."""
+    experiment_name = 'TransformerConv'
+    folder = Path(__file__).resolve().parent / '_runs' / experiment_name
+    folder.mkdir(exist_ok=True, parents=True)
+
+    # best_params = hparam_optimization(folder)
+    # run_best(folder)
+
+    # model_name = 'best_2'
+    # pre_model, pre_params = load_model_and_params(folder / 'save' / f'{model_name}.pth')
+    # pre_params['pretrained_model'] = pre_model
+    # pre_params['n_process_blocks'] = 6
+
+    # run(pre_params, 'best_2B', folder, epochs=1000)
+
+    model_name = 'best_2B'
+    pre_model, pre_params = load_model_and_params(folder / 'save' / f'{model_name}.pth')
+    pre_params['pretrained_model'] = pre_model
+    pre_params['n_process_blocks'] = 12
+
+    run(pre_params, 'best_2B1', folder, epochs=1000)
+
 
 if __name__ == '__main__':
     main()

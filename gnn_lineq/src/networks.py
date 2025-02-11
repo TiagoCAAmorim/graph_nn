@@ -300,7 +300,7 @@ class EncDecNetwork(torch.nn.Module):
 
         if self.pretrained_model is not None:
             with torch.no_grad():
-                x_estimate = self.pretrained_model(x)
+                x_estimate = self.pretrained_model(x, edge_index, edge_attr)
 
         x = self.enconder_nodes(x)
         e = self.enconder_edges(edge_attr)
