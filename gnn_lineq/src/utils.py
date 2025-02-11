@@ -7,9 +7,11 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 
-def count_parameters(model):
-    """Count the number of trainable parameters in a model."""
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+def count_parameters(model, only_trainable=True):
+    """Count the total number of parameters and the number of trainable parameters in a model."""
+    if only_trainable:
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return sum(p.numel() for p in model.parameters())
 
 
 def plot_losses(losses, ax=None, fig_size=(4,4), title=None, file_path=None):
@@ -33,33 +35,44 @@ def plot_losses(losses, ax=None, fig_size=(4,4), title=None, file_path=None):
 
 
 def plot_samples_error(model, samples, ax=None, fig_size=(4,4), title=None, file_path=None):
-    """Plot the result of the model for various samples."""
+    """
+    Plot the result of the model for various samples.
+
+    If the model is None, the samples should be a tuple of (samples, results).
+    """
     if ax is None:
         _, ax = plt.subplots(figsize=fig_size)
 
-    model.eval()
-    device = next(model.parameters()).device
-    results = []
-    with torch.no_grad():
-        for sample in samples:
-            results.append(model(sample.to(device)))
+    if model is None:
+        real, results = samples[0], samples[1]
+    else:
+        model.eval()
+        device = next(model.parameters()).device
+        real = []
+        results = []
+        with torch.no_grad():
+            for sample in samples:
+                result = model(sample.to(device))
+                result = result.cpu().flatten().numpy()
+                results.append(result)
+
+                real_ = sample.y.cpu().flatten().numpy()
+                real.append(real_)
 
     labels = ['Real', 'Estimate']
-    for sample, result in zip(samples, results):
-        real = sample.y.cpu().flatten().numpy()
-        estimate = result.cpu().flatten().numpy()
-        sorted_indices = np.argsort(real)
+    for real_, result in zip(real, results):
+        sorted_indices = np.argsort(real_)
 
-        base_line, = ax.plot(real[sorted_indices], label=labels[0])
+        base_line, = ax.plot(real_[sorted_indices], label=labels[0])
         last_color = base_line.get_color()
-        ax.plot(estimate[sorted_indices], label=labels[1], linestyle='--', color=last_color)
+        ax.plot(result[sorted_indices], label=labels[1], linestyle='--', color=last_color)
         labels = [None, None]
 
     ax.set_ylabel('Value')
     ax.legend()
     ax.grid(which='both', linewidth=0.5)
     if title is None:
-        residual = np.sqrt(np.mean(np.square(real - estimate)))
+        residual = np.sqrt(np.mean(np.square(real - results)))
         title = f'RMS error: {residual:.4g}'
     ax.set_title(title)
 

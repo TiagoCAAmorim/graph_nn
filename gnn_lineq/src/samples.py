@@ -7,7 +7,7 @@ Classes:
 - LinEqSample: Class that generates Linear Equations samples.
 """
 import numpy as np
-from scipy.sparse import diags
+from scipy.sparse import diags, csr_matrix
 from scipy.sparse.linalg import spsolve
 
 import torch
@@ -72,6 +72,7 @@ class LinEqSample():
     - width_range (tuple): Range of possbible values for the width of the
         uniform distribution used to create the matrix of coefficients.
         Default is (0.1,10.).
+    - std (float): Standard deviation of the Gaussian noise. Default is 0.0.
 
     Methods:
     --------
@@ -102,6 +103,7 @@ class LinEqSample():
         if self.width_range[0] > self.width_range[1]:
             self.width_range = (self.width_range[1], self.width_range[0])
 
+        self.std = kwargs.get('std', 0.0)
         self._params = self._get_params()
 
 
@@ -159,6 +161,57 @@ class LinEqSample():
         return diags(data, self._params['offsets'], format='csr')
 
 
+    # MARK: Noise
+    def add_gaussian_noise(self, matrix):
+        """
+        Add Gaussian noise to a np.ndarray or the non-zero elements of a scipy.sparse.csr_matrix.
+
+        Parameters:
+        -----------
+        - matrix (np.ndarray or scipy.sparse.csr_matrix): Input numpy or sparse matrix.
+
+        Returns:
+        --------
+        - np.ndarray or scipy.sparse.csr_matrix: Input matrix with added Gaussian noise.
+        """
+        if self.std == 0:
+            return matrix
+
+        if isinstance(matrix, np.ndarray):
+            noise = np.random.normal(0.0, self.std, matrix.shape)
+            return matrix + noise
+
+        noise = np.random.normal(0.0, self.std, matrix.data.shape)
+        noisy_data = matrix.data + noise
+        return csr_matrix((noisy_data, matrix.indices, matrix.indptr), shape=matrix.shape)
+
+
+    def add_noise_sample(self, matrix_a, x_true, b, apply=(False, True, False)):
+        """
+        Add Gaussian noise to the sample.
+
+        Parameters:
+        -----------
+        - matrix_a (scipy.sparse.csr_matrix): Matrix of coefficients.
+        - x_true (np.ndarray): True solution.
+        - b (np.ndarray): Right-hand side of the linear system.
+        - apply (tuple): Tuple of booleans to apply noise to the matrix, the
+            true solution and the right-hand side of the linear system.
+            Default is (False, True, False), ie, only the true solution is noisy.
+
+        Returns:
+        --------
+        - scipy.sparse.csr_matrix: Matrix of coefficients.
+        - np.ndarray: True solution.
+        - np.ndarray: Right-hand side of the linear system.
+        """
+        sample = [matrix_a, x_true, b]
+        for i,p in enumerate(apply):
+            if p:
+                sample[i] = self.add_gaussian_noise(sample[i])
+        return sample
+
+
     # MARK: Public methods
     def get(self, max_error=0, max_iter=1000, throw_error=True):
         """
@@ -193,13 +246,13 @@ class LinEqSample():
             b = matrix_a.dot(x_true)
 
             if max_error == 0:
-                return (matrix_a, x_true, b)
+                return self.add_noise_sample(matrix_a, x_true, b)
             error = LinEqSample.calculate_residual(matrix_a, x_true, b, aggr='rms')
             if error < max_error:
-                return (matrix_a, x_true, b)
+                return self.add_noise_sample(matrix_a, x_true, b)
             if error < best_error:
                 best_error = error
-                best_sample = (matrix_a, x_true, b)
+                best_sample = self.add_noise_sample(matrix_a, x_true, b)
 
         if throw_error:
             raise ValueError("Could not generate a linear system with the desired error.")
@@ -236,6 +289,23 @@ class LinEqSample():
 
 
     @staticmethod
+    def solve(matrix, b):
+        """
+        Solve a linear system of equations.
+
+        Arguments:
+        ----------
+        - matrix (scipy.sparse.csr_matrix): Matrix of coefficients.
+        - b (np.ndarray): Right-hand side of the linear system.
+
+        Returns:
+        --------
+        - np.ndarray: Solution of the linear system.
+        """
+        return spsolve(matrix, b)
+
+
+    @staticmethod
     def calculate_residual(matrix, x_true, b, aggr=None):
         """
         Calculate the residual of the linear system.
@@ -246,13 +316,13 @@ class LinEqSample():
         - x_true (np.ndarray): True solution.
         - b (np.ndarray): Right-hand side of the linear system.
         - aggr (str): Aggregation method for the residual. Options are 'max',
-            'mean', and 'rms'. If None, returns the vector. Default is None.
+            'mean', 'rms' and 'mse'. If None, returns the vector. Default is None.
 
         Returns:
         --------
         - np.ndarray or float: Residual of the linear system.
         """
-        x_solve = spsolve(matrix, b)
+        x_solve = LinEqSample.solve(matrix, b)
         residual = np.abs(x_solve - x_true)
         if aggr is None:
             return residual
@@ -262,6 +332,8 @@ class LinEqSample():
             return residual.mean()
         if aggr == 'rms':
             return np.sqrt(np.mean(np.square(residual)))
+        if aggr == 'mse':
+            return np.mean(np.square(residual))
         raise ValueError("Invalid aggregation method.")
 
 
