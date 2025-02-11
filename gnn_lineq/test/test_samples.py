@@ -125,6 +125,30 @@ class TestSamples(unittest.TestCase):
         plt.tight_layout()
         plt.savefig(self.folder / 'noisy_samples.png')
 
+    def test_noise_free_sample(self):
+        """Test noise free sample generation."""
+        new_sample = LinEqSample(**self.options)
+        matrix, x_true, b = new_sample.get(max_error=1E-6, max_iter=1000, throw_error=True)
+        residual = LinEqSample.calculate_residual(matrix, x_true, b, aggr='rms')
+        self.assertLess(residual, 1E-6)
+
+        matrix, x_true, b = new_sample.get(max_error=1E-6, max_iter=1000, throw_error=True, std=1E-1)
+        residual = LinEqSample.calculate_residual(matrix, x_true, b, aggr='rms')
+        self.assertGreater(residual, 1E-6)
+
+
+        noise_options = self.options.copy()
+        noise_options['std'] = 1E-1
+
+        new_sample = LinEqSample(**noise_options)
+        matrix, x_true, b = new_sample.get(max_error=1E-6, max_iter=1000, throw_error=True)
+        residual = LinEqSample.calculate_residual(matrix, x_true, b, aggr='rms')
+        self.assertGreater(residual, 1E-6)
+
+        matrix, x_true, b = new_sample.get(max_error=1E-6, max_iter=1000, throw_error=True, std=0.0)
+        residual = LinEqSample.calculate_residual(matrix, x_true, b, aggr='rms')
+        self.assertLess(residual, 1E-6)
+
 
 if __name__ == '__main__':
     suite = unittest.TestSuite()
@@ -132,6 +156,7 @@ if __name__ == '__main__':
     suite.addTest(TestSamples('test_big_sample'))
     suite.addTest(TestSamples('test_dataset'))
     suite.addTest(TestSamples('test_noisy_sample'))
+    suite.addTest(TestSamples('test_noise_free_sample'))
 
     runner = unittest.TextTestRunner()
     runner.run(suite)

@@ -162,31 +162,36 @@ class LinEqSample():
 
 
     # MARK: Noise
-    def add_gaussian_noise(self, matrix):
+    def add_gaussian_noise(self, matrix, std=None):
         """
         Add Gaussian noise to a np.ndarray or the non-zero elements of a scipy.sparse.csr_matrix.
 
         Parameters:
         -----------
         - matrix (np.ndarray or scipy.sparse.csr_matrix): Input numpy or sparse matrix.
+        - std (float): Standard deviation of the Gaussian noise. If None, the
+            standard deviation of the class is used. Default is None.
 
         Returns:
         --------
         - np.ndarray or scipy.sparse.csr_matrix: Input matrix with added Gaussian noise.
         """
-        if self.std == 0:
+        if std is None:
+            std = self.std
+
+        if std == 0:
             return matrix
 
         if isinstance(matrix, np.ndarray):
-            noise = np.random.normal(0.0, self.std, matrix.shape)
+            noise = np.random.normal(0.0, std, matrix.shape)
             return matrix + noise
 
-        noise = np.random.normal(0.0, self.std, matrix.data.shape)
+        noise = np.random.normal(0.0, std, matrix.data.shape)
         noisy_data = matrix.data + noise
         return csr_matrix((noisy_data, matrix.indices, matrix.indptr), shape=matrix.shape)
 
 
-    def add_noise_sample(self, matrix_a, x_true, b, apply=(False, True, False)):
+    def add_noise_sample(self, matrix_a, x_true, b, apply=(False, True, False), std=None):
         """
         Add Gaussian noise to the sample.
 
@@ -198,6 +203,8 @@ class LinEqSample():
         - apply (tuple): Tuple of booleans to apply noise to the matrix, the
             true solution and the right-hand side of the linear system.
             Default is (False, True, False), ie, only the true solution is noisy.
+        - std (float): Standard deviation of the Gaussian noise. If None, the
+            standard deviation of the class is used. Default is None.
 
         Returns:
         --------
@@ -208,12 +215,12 @@ class LinEqSample():
         sample = [matrix_a, x_true, b]
         for i,p in enumerate(apply):
             if p:
-                sample[i] = self.add_gaussian_noise(sample[i])
+                sample[i] = self.add_gaussian_noise(sample[i], std=std)
         return sample
 
 
     # MARK: Public methods
-    def get(self, max_error=0, max_iter=1000, throw_error=True):
+    def get(self, max_error=0, max_iter=1000, throw_error=True, std=None):
         """
         Get a linear system sample.
 
@@ -227,6 +234,8 @@ class LinEqSample():
         - throw_error (bool): If True, raises an error if the maximum number
             of iterations is reached. If False the 'best' sample is returned.
             Default is True.
+        - std (float): Standard deviation of the Gaussian noise. If None, the
+            standard deviation of the class is used. Default
 
         Returns:
         --------
@@ -246,20 +255,20 @@ class LinEqSample():
             b = matrix_a.dot(x_true)
 
             if max_error == 0:
-                return self.add_noise_sample(matrix_a, x_true, b)
+                return self.add_noise_sample(matrix_a, x_true, b, std=std)
             error = LinEqSample.calculate_residual(matrix_a, x_true, b, aggr='rms')
             if error < max_error:
-                return self.add_noise_sample(matrix_a, x_true, b)
+                return self.add_noise_sample(matrix_a, x_true, b, std=std)
             if error < best_error:
                 best_error = error
-                best_sample = self.add_noise_sample(matrix_a, x_true, b)
+                best_sample = self.add_noise_sample(matrix_a, x_true, b, std=std)
 
         if throw_error:
             raise ValueError("Could not generate a linear system with the desired error.")
         return best_sample
 
 
-    def get_graph(self, max_error=0, max_iter=1000, throw_error=True):
+    def get_graph(self, max_error=0, max_iter=1000, throw_error=True, std=None):
         """
         Get a graph from a linear system sample.
 
@@ -273,6 +282,8 @@ class LinEqSample():
         - throw_error (bool): If True, raises an error if the maximum number
             of iterations is reached. If False the 'best' sample is returned.
             Default is True.
+        - std (float): Standard deviation of the Gaussian noise. If None, the
+            standard deviation of the class is used. Default is None.
 
         Returns:
         --------
@@ -283,7 +294,8 @@ class LinEqSample():
         matrix, x_true, b = self.get(
             max_error=max_error,
             max_iter=max_iter,
-            throw_error=throw_error
+            throw_error=throw_error,
+            std=std
         )
         return LinEqSample.sparse_to_graph(matrix, x_true, b)
 
